@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Create a workshop · Helmsman{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Create a workshop</h1>
+  <p class="lede">Define the milestones, get a participant link and a separate admin link. Both are reusable until the workshop expires.</p>
+
+  <form method="post" action="/admin/new" class="stack">
+    <label>
+      <span>Workshop name</span>
+      <input type="text" name="name" required maxlength="200"
+             placeholder="e.g. AI Agents 101 — July cohort" />
+    </label>
+
+    <label>
+      <span>Milestones — one per line, format <code>title: short description</code></span>
+      <textarea name="milestones" rows="9" required>{{ default_milestones }}</textarea>
+      <small class="muted">If you leave this blank, four default steps (Setup → API Key → First Build → Done) are used.</small>
+    </label>
+
+    <label>
+      <span>Participant link expiry (hours)</span>
+      <input type="number" name="ttl_hours" min="1" max="168" value="{{ default_ttl }}" />
+      <small class="muted">The admin link isn't affected by expiry — you can always export & archive later.</small>
+    </label>
+
+    <div class="cta-row">
+      <button class="btn btn-primary" type="submit">Create workshop</button>
+      <a class="btn" href="/">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

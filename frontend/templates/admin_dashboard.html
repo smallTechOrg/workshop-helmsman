@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}{{ workshop.name }} · Facilitator{% endblock %}
+{% block topnav %}
+  <a class="pill" href="/admin/{{ workshop.admin_token }}/edit">Edit</a>
+  <a class="pill" href="/admin/{{ workshop.admin_token }}/export.csv">Export CSV</a>
+  <form method="post" action="/admin/{{ workshop.admin_token }}/clone" style="display:inline">
+    <button class="pill" type="submit">Clone workshop</button>
+  </form>
+{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="card-header">
+    <h1>{{ workshop.name }}</h1>
+    <div class="meta">
+      <span class="badge {% if workshop.archived %}badge-archived{% elif workshop.is_expired() %}badge-expired{% else %}badge-live{% endif %}">
+        {% if workshop.archived %}archived{% elif workshop.is_expired() %}expired{% else %}live{% endif %}
+      </span>
+      <span class="muted">expires {{ workshop.expires_at.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+    </div>
+  </div>
+
+  <div class="link-row">
+    <div>
+      <small class="muted">Participant link</small>
+      <code class="big-link" id="participant-link">/w/{{ workshop.participant_slug }}</code>
+    </div>
+    <div>
+      <small class="muted">Admin link (keep secret)</small>
+      <code class="big-link">/admin/{{ workshop.admin_token }}</code>
+    </div>
+  </div>
+  <p class="muted">Share the participant link with attendees. Bookmark the admin link — it's the only place you'll revisit this dashboard.</p>
+</section>
+
+<section class="grid two">
+  <div class="card">
+    <h2>Stats</h2>
+    <div class="stat-row">
+      <div><span class="stat-num">{{ participant_count }}</span><span class="stat-label">participants</span></div>
+      <div>
+        <span class="stat-num">{{ help_requests|length }}</span>
+        <span class="stat-label">help flags</span>
+      </div>
+    </div>
+
+    <h3 class="mt">Per-milestone completion</h3>
+    <table class="table compact">
+      <thead><tr><th>Milestone</th><th>Done</th><th>% participants</th></tr></thead>
+      <tbody>
+        {% for s in stats %}
+          <tr>
+            <td><strong>{{ s.title }}</strong><br /><small class="muted">{{ s.description }}</small></td>
+            <td>{{ s.count }} / {{ participant_count }}</td>
+            <td>
+              <div class="bar"><div class="bar-fill" style="width: {{ s.pct }}%"></div></div>
+              <small class="muted">{{ s.pct }}%</small>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Help flags</h2>
+    {% if help_requests %}
+      <ul class="plain-list">
+        {% for h in help_requests %}
+          <li class="help-card">
+            <div class="help-meta">
+              <strong>{{ h.participant.name }}</strong>
+              <small class="muted">· {{ h.created_at.strftime('%H:%M:%S UTC') }}</small>
+            </div>
+            <div class="help-body">{{ h.message }}</div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No one has flagged for help. Nice.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <h2>Participants</h2>
+  {% if rows %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th><th>Name</th><th>Joined</th><th>Progress</th><th>Milestones</th>
+        </tr>
+      </thead>
+      <tbody id="participants-tbody">
+        {% for r in rows %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td><strong>{{ r.participant.name }}</strong></td>
+            <td><small class="muted">{{ r.participant.joined_at.strftime('%H:%M:%S UTC') }}</small></td>
+            <td>
+              <div class="bar"><div class="bar-fill" style="width: {{ r.pct }}%"></div></div>
+              <small class="muted">{{ r.completed_count }} / {{ r.total }} · {{ r.pct }}%</small>
+            </td>
+            <td>
+              {% for m in milestones %}
+                <span class="chip {% if m.id in r.completed_ids %}chip-done{% endif %}">{{ m.title }}</span>
+              {% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No one has joined yet. Share the participant link to start.</p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+  // Soft polling on the admin dashboard too, so multi-tab facilitators see live updates.
+  (function () {
+    const tbody = document.getElementById('participants-tbody');
+    if (!tbody) return;
+    setInterval(() => location.reload(), 15000);
+  })();
+</script>
+{% endblock %}

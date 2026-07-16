@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}{{ workshop.name }} · Tracker{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>{{ workshop.name }}</h1>
+  <p class="muted">Hi <strong>{{ participant.name }}</strong>. Mark each milestone as you finish it. The leaderboard auto-refreshes.</p>
+</section>
+
+<section class="grid two">
+  <div class="card">
+    <h2>Your milestones</h2>
+    <div class="progress">
+      <div class="bar"><div id="my-bar" class="bar-fill" style="width: {{ (completed_ids|length * 100 / (milestones|length or 1))|round(0, 'floor') }}%"></div></div>
+      <small class="muted">
+        <span id="my-progress-text">{{ completed_ids|length }}</span> / {{ milestones|length }} complete
+        · <span id="my-progress-pct">{{ (completed_ids|length * 100 / (milestones|length or 1))|round(0, 'floor') }}</span>%
+      </small>
+    </div>
+
+    <ol class="milestones" id="milestones-list">
+      {% for m in milestones %}
+        <li class="milestone {% if m.id in completed_ids %}milestone-done{% endif %}" data-mid="{{ m.id }}">
+          <div class="milestone-body">
+            <strong>{{ m.title }}</strong>
+            {% if m.description %}<div class="muted">{{ m.description }}</div>{% endif %}
+            {% if m.id in completed_ids %}
+              <small class="muted">completed {{ completed_ids[m.id].strftime('%H:%M:%S UTC') }}</small>
+            {% endif %}
+          </div>
+          {% if m.id in completed_ids %}
+            <span class="chip chip-done">✓ done</span>
+          {% else %}
+            <form method="post" action="/w/{{ workshop.participant_slug }}/me/complete/{{ m.id }}">
+              <button class="btn" type="submit">Mark complete</button>
+            </form>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>Leaderboard</h2>
+    <ol class="leaderboard" id="leaderboard-list">
+      {% for row in leaderboard %}
+        <li class="leaderboard-row {% if row.is_me %}leaderboard-me{% endif %}">
+          <span class="leaderboard-name">
+            {{ row.name }}{% if row.is_me %} <small class="muted">(you)</small>{% endif %}
+          </span>
+          <span class="leaderboard-progress">
+            <span class="bar small"><div class="bar-fill" style="width: {{ row.pct }}%"></div></span>
+            <small class="muted">{{ row.completed_count }} / {{ row.total }}</small>
+          </span>
+        </li>
+      {% endfor %}
+    </ol>
+    <small class="muted">Auto-refreshes every few seconds.</small>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Stuck? Get the room's attention.</h2>
+  <p class="muted">Type what's blocking you. The facilitator sees it on their dashboard.</p>
+  <form method="post" action="/w/{{ workshop.participant_slug }}/me/help" class="stack">
+    <textarea name="message" rows="3" maxlength="2000"
+              placeholder="e.g. My python -m src says no module named src — tried venv reinstall already."></textarea>
+    <button class="btn" type="submit">Send help flag</button>
+  </form>
+
+  <h3 class="mt">Recent help flags</h3>
+  <ul class="plain-list" id="help-list">
+    {% for h in latest_help %}
+      <li class="help-card">
+        <div class="help-meta">
+          <strong>{{ h.participant.name }}</strong>
+          <small class="muted">· {{ h.created_at.strftime('%H:%M:%S UTC') }}</small>
+        </div>
+        <div class="help-body">{{ h.message }}</div>
+      </li>
+    {% else %}
+      <li class="muted">No help flags yet.</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/app.js"></script>
+<script>
+  // Hand the polling loop the workshop slug + this participant's row id.
+  window.__helmsman = window.__helmsman || {};
+  window.__helmsman.slug = {{ workshop.participant_slug|tojson }};
+  window.__helmsman.meId = {{ participant.id|tojson }};
+</script>
+{% endblock %}

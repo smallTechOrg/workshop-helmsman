@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ workshop.name }} · Ended{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <span class="badge badge-expired">Workshop ended</span>
+  <h1>{{ workshop.name }}</h1>
+  <p>This participant link has expired. The facilitator still has their admin link
+     and can export / archive the session from there.</p>
+  <a class="btn" href="/">Back to home</a>
+</section>
+{% endblock %}

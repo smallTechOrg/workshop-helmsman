@@ -1,0 +1,528 @@
+"""FastAPI application: all routes for Workshop Helmsman Phase 1."""
+
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import desc
+from sqlalchemy.orm import Session
+
+from .db import get_db, init_db
+from .models import HelpRequest, MilestoneCompletion, Participant, Workshop
+from .security import (
+    PARTICIPANT_COOKIE,
+    find_participant,
+    find_workshop_by_admin_token,
+    find_workshop_by_slug,
+    generate_admin_token,
+    generate_participant_slug,
+    require_workshop_by_admin_token,
+    require_workshop_by_slug,
+)
+
+# --- Paths & app bootstrap ---
+
+HERE = Path(__file__).resolve().parent.parent
+TEMPLATE_DIR = HERE / "frontend" / "templates"
+STATIC_DIR = HERE / "frontend" / "static"
+
+app = FastAPI(title="Workshop Helmsman", version="0.1.0")
+templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.on_event("startup")
+def _on_startup() -> None:
+    init_db()
+
+
+# --- Helpers ---
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_milestones(raw: str) -> list[dict]:
+    """Parse lines into [{id, title, description}]."""
+    parsed: list[dict] = []
+    for idx, line in enumerate((raw or "").splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        if ":" in line:
+            title, description = line.split(":", 1)
+            title = title.strip()
+            description = description.strip()
+        else:
+            title = line
+            description = ""
+        if not title:
+            continue
+        parsed.append({"id": f"m{idx}", "title": title, "description": description})
+    if not parsed:
+        # Sensible default — facilitator gets 4 phases even if they submit blank.
+        parsed = [
+            {"id": "m0", "title": "Setup", "description": "Environment ready"},
+            {"id": "m1", "title": "API Key", "description": "API key configured"},
+            {"id": "m2", "title": "First Build", "description": "First working build"},
+            {"id": "m3", "title": "Done", "description": "Workshop wrap-up"},
+        ]
+    return parsed
+
+
+def _render(request: Request, template: str, **ctx) -> HTMLResponse:
+    return templates.TemplateResponse(request, template, ctx)
+
+
+def _participant_progress(participant: Participant, milestones: list[dict]) -> dict:
+    completed_ids = {c.milestone_id for c in participant.completions}
+    return {
+        "participant": participant,
+        "completed_ids": completed_ids,
+        "completed_count": len(completed_ids),
+        "total": len(milestones),
+        "pct": int(round(100 * len(completed_ids) / max(len(milestones), 1))),
+    }
+
+
+# --- Health & landing ---
+
+@app.get("/healthz", response_class=JSONResponse)
+def healthz(db: Session = Depends(get_db)) -> dict:
+    try:
+        # Cheap query — proves DB reachable.
+        db.execute(__import__("sqlalchemy").text("SELECT 1"))
+        return {"status": "ok", "db": "ok"}
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"status": "degraded", "db": str(exc)})
+
+
+@app.get("/", response_class=HTMLResponse)
+def landing(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    # Bootstrap a DEMO workshop the first time anyone hits /, so facilitators
+    # can poke at a working session immediately.
+    demo = (
+        db.query(Workshop)
+        .filter(Workshop.admin_token == "demo-workshop-admin-token")
+        .first()
+    )
+    if demo is None:
+        milestones = _parse_milestones(
+            "Setup: pick your environment\nAPI Key: configure your LLM key\nFirst Build: run your hello-world\nDone: workshop wrap-up"
+        )
+        now = _utcnow()
+        demo = Workshop(
+            name="(demo) Quick Walkthrough",
+            created_at=now,
+            expires_at=now + timedelta(days=1),
+            admin_token="demo-workshop-admin-token",
+            participant_slug="demo-walkthrough",
+            milestone_config=json.dumps(milestones),
+            archived=False,
+        )
+        db.add(demo)
+        db.commit()
+
+    recent = (
+        db.query(Workshop).order_by(desc(Workshop.created_at)).limit(10).all()
+    )
+    return _render(
+        request,
+        "landing.html",
+        demo_admin=demo.admin_token,
+        demo_slug=demo.participant_slug,
+        workshops=recent,
+    )
+
+
+# --- Admin: create workshop ---
+
+@app.get("/admin/new", response_class=HTMLResponse)
+def admin_new_form(request: Request) -> HTMLResponse:
+    default_milestones = "\n".join(
+        [
+            "Setup: pick your environment and clone the starter",
+            "API Key: configure your LLM provider key",
+            "First Build: ship a hello-world end-to-end",
+            "Done: present and wrap up",
+        ]
+    )
+    return _render(
+        request,
+        "admin_new.html",
+        default_milestones=default_milestones,
+        default_ttl=8,
+    )
+
+
+@app.post("/admin/new")
+def admin_new_create(
+    request: Request,
+    name: str = Form(...),
+    milestones: str = Form(""),
+    ttl_hours: int = Form(8),
+    db: Session = Depends(get_db),
+):
+    name = (name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Workshop name is required")
+    if ttl_hours < 1 or ttl_hours > 7 * 24:
+        ttl_hours = 8
+    parsed = _parse_milestones(milestones)
+    now = _utcnow()
+    workshop = Workshop(
+        name=name,
+        created_at=now,
+        expires_at=now + timedelta(hours=ttl_hours),
+        admin_token=generate_admin_token(),
+        participant_slug=generate_participant_slug(),
+        milestone_config=json.dumps(parsed),
+        archived=False,
+    )
+    db.add(workshop)
+    db.commit()
+    return RedirectResponse(url=f"/admin/{workshop.admin_token}", status_code=303)
+
+
+# --- Admin: dashboard ---
+
+@app.get("/admin/{admin_token}", response_class=HTMLResponse)
+def admin_dashboard(
+    request: Request, admin_token: str, db: Session = Depends(get_db)
+) -> HTMLResponse:
+    workshop = require_workshop_by_admin_token(db, admin_token)
+    milestones = workshop.milestones()
+    participants = (
+        db.query(Participant)
+        .filter(Participant.workshop_id == workshop.id)
+        .order_by(Participant.joined_at.asc())
+        .all()
+    )
+    rows = [_participant_progress(p, milestones) for p in participants]
+    help_requests = (
+        db.query(HelpRequest)
+        .join(Participant, HelpRequest.participant_id == Participant.id)
+        .filter(Participant.workshop_id == workshop.id)
+        .order_by(desc(HelpRequest.created_at))
+        .limit(20)
+        .all()
+    )
+    # Per-milestone completion stats across all participants.
+    stats: list[dict] = []
+    for m in milestones:
+        c = (
+            db.query(MilestoneCompletion)
+            .join(Participant, MilestoneCompletion.participant_id == Participant.id)
+            .filter(
+                Participant.workshop_id == workshop.id,
+                MilestoneCompletion.milestone_id == m["id"],
+            )
+            .count()
+        )
+        stats.append({**m, "count": c, "pct": int(round(100 * c / max(len(participants), 1)))})
+    return _render(
+        request,
+        "admin_dashboard.html",
+        workshop=workshop,
+        rows=rows,
+        milestones=milestones,
+        stats=stats,
+        help_requests=help_requests,
+        participant_count=len(participants),
+    )
+
+
+# --- Admin: explicit stubs ---
+
+def _stub_page(request: Request, label: str, admin_token: str) -> HTMLResponse:
+    return _render(
+        request,
+        "_stubs.html",
+        label=label,
+        admin_token=admin_token,
+    )
+
+
+@app.get("/admin/{admin_token}/edit", response_class=HTMLResponse)
+def admin_edit_stub(request: Request, admin_token: str) -> HTMLResponse:
+    return _stub_page(request, "Edit workshop (milestones, expiry, name)", admin_token)
+
+
+@app.get("/admin/{admin_token}/export.csv", response_class=HTMLResponse)
+def admin_export_stub(request: Request, admin_token: str) -> HTMLResponse:
+    return _stub_page(request, "Export CSV (full audit)", admin_token)
+
+
+@app.post("/admin/{admin_token}/clone")
+def admin_clone_stub(request: Request, admin_token: str) -> HTMLResponse:
+    return _stub_page(request, "Clone workshop into a new session", admin_token)
+
+
+# --- Local workshops index (Phase 3 stub) ---
+
+@app.get("/workshops", response_class=HTMLResponse)
+def workshops_index(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    items = (
+        db.query(Workshop).order_by(desc(Workshop.created_at)).limit(50).all()
+    )
+    return _render(request, "workshops_index.html", items=items)
+
+
+# --- Participant: join ---
+
+@app.get("/w/{slug}", response_class=HTMLResponse)
+def participant_join(
+    request: Request,
+    slug: str,
+    db: Session = Depends(get_db),
+    wid: str | None = None,
+) -> HTMLResponse:
+    workshop = find_workshop_by_slug(db, slug)
+    if workshop is None or workshop.archived:
+        raise HTTPException(status_code=404, detail="Workshop not found")
+    if workshop.is_expired():
+        return _render(request, "workshop_expired.html", workshop=workshop)
+
+    # If `wid` cookie maps to a participant in this workshop, fast-path to tracker.
+    existing_pid: int | None = None
+    cookie_wid = request.cookies.get(PARTICIPANT_COOKIE)
+    if cookie_wid is not None:
+        try:
+            pid = int(cookie_wid)
+            p = find_participant(db, workshop.id, pid)
+            if p is not None:
+                existing_pid = pid
+        except ValueError:
+            pass
+
+    if existing_pid is not None:
+        return RedirectResponse(url=f"/w/{slug}/me", status_code=303)
+
+    return _render(request, "participant_join.html", workshop=workshop)
+
+
+@app.post("/w/{slug}")
+def participant_register(
+    request: Request,
+    slug: str,
+    name: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    workshop = require_workshop_by_slug(db, slug)
+    if workshop.is_expired():
+        return _render(request, "workshop_expired.html", workshop=workshop)
+    name = (name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if len(name) > 120:
+        name = name[:120]
+
+    participant = Participant(workshop_id=workshop.id, name=name)
+    db.add(participant)
+    db.commit()
+    db.refresh(participant)
+
+    response = RedirectResponse(url=f"/w/{slug}/me", status_code=303)
+    response.set_cookie(
+        key=PARTICIPANT_COOKIE,
+        value=str(participant.id),
+        max_age=60 * 60 * 12,  # 12 hours — survives workshop length
+        httponly=True,
+        samesite="lax",
+        path=f"/w/{slug}",
+    )
+    return response
+
+
+# --- Participant: personal tracker ---
+
+def _resolve_participant(
+    request: Request, db: Session, slug: str
+) -> tuple[Workshop, Participant]:
+    workshop = require_workshop_by_slug(db, slug)
+    if workshop.is_expired():
+        raise HTTPException(status_code=404, detail="Workshop has ended")
+    cookie = request.cookies.get(PARTICIPANT_COOKIE)
+    if not cookie:
+        raise HTTPException(status_code=401, detail="Join the workshop first")
+    try:
+        pid = int(cookie)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Invalid session") from exc
+    participant = find_participant(db, workshop.id, pid)
+    if participant is None:
+        raise HTTPException(status_code=401, detail="Join the workshop first")
+    return workshop, participant
+
+
+@app.get("/w/{slug}/me", response_class=HTMLResponse)
+def participant_me(
+    request: Request, slug: str, db: Session = Depends(get_db)
+) -> HTMLResponse:
+    workshop, participant = _resolve_participant(request, db, slug)
+    milestones = workshop.milestones()
+    completed_ids: dict[str, datetime] = {
+        c.milestone_id: c.completed_at for c in participant.completions
+    }
+
+    # Leaderboard for everyone in this workshop.
+    all_participants = (
+        db.query(Participant)
+        .filter(Participant.workshop_id == workshop.id)
+        .order_by(Participant.joined_at.asc())
+        .all()
+    )
+    leaderboard = []
+    for p in all_participants:
+        done = {c.milestone_id for c in p.completions}
+        leaderboard.append(
+            {
+                "id": p.id,
+                "name": p.name,
+                "joined_at": p.joined_at.isoformat(),
+                "completed_count": len(done),
+                "total": len(milestones),
+                "pct": int(round(100 * len(done) / max(len(milestones), 1))),
+                "is_me": p.id == participant.id,
+            }
+        )
+
+    help_recent = (
+        db.query(HelpRequest)
+        .join(Participant, HelpRequest.participant_id == Participant.id)
+        .filter(Participant.workshop_id == workshop.id)
+        .order_by(desc(HelpRequest.created_at))
+        .limit(20)
+        .all()
+    )
+    return _render(
+        request,
+        "participant_tracker.html",
+        workshop=workshop,
+        participant=participant,
+        milestones=milestones,
+        completed_ids=completed_ids,
+        leaderboard=leaderboard,
+        latest_help=help_recent,
+    )
+
+
+@app.post("/w/{slug}/me/complete/{milestone_id}")
+def participant_complete(
+    request: Request,
+    slug: str,
+    milestone_id: str,
+    db: Session = Depends(get_db),
+):
+    workshop, participant = _resolve_participant(request, db, slug)
+    milestone = next((m for m in workshop.milestones() if m["id"] == milestone_id), None)
+    if milestone is None:
+        raise HTTPException(status_code=404, detail="Milestone not found")
+    existing = (
+        db.query(MilestoneCompletion)
+        .filter(
+            MilestoneCompletion.participant_id == participant.id,
+            MilestoneCompletion.milestone_id == milestone_id,
+        )
+        .first()
+    )
+    if existing is None:
+        completion = MilestoneCompletion(
+            participant_id=participant.id,
+            milestone_id=milestone_id,
+            milestone_title=milestone["title"],
+        )
+        db.add(completion)
+        db.commit()
+    return RedirectResponse(url=f"/w/{slug}/me", status_code=303)
+
+
+@app.post("/w/{slug}/me/help")
+def participant_help(
+    request: Request,
+    slug: str,
+    message: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    workshop, participant = _resolve_participant(request, db, slug)
+    message = (message or "").strip()
+    if message:
+        # Cap to keep DB tidy.
+        if len(message) > 2000:
+            message = message[:2000]
+        req = HelpRequest(participant_id=participant.id, message=message)
+        db.add(req)
+        db.commit()
+    return RedirectResponse(url=f"/w/{slug}/me", status_code=303)
+
+
+@app.get("/w/{slug}/data", response_class=JSONResponse)
+def participant_poll(
+    request: Request, slug: str, since: str | None = None, db: Session = Depends(get_db)
+):
+    """JSON endpoint polled by the participant tracker every ~4s."""
+    workshop = find_workshop_by_slug(db, slug)
+    if workshop is None or workshop.archived:
+        raise HTTPException(status_code=404, detail="Workshop not found")
+
+    milestones = workshop.milestones()
+    since_dt = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        except ValueError:
+            since_dt = None
+
+    all_participants = (
+        db.query(Participant)
+        .filter(Participant.workshop_id == workshop.id)
+        .order_by(Participant.joined_at.asc())
+        .all()
+    )
+    leaderboard = []
+    for p in all_participants:
+        done = {c.milestone_id for c in p.completions}
+        leaderboard.append(
+            {
+                "id": p.id,
+                "name": p.name,
+                "completed_count": len(done),
+                "total": len(milestones),
+                "pct": int(round(100 * len(done) / max(len(milestones), 1))),
+            }
+        )
+
+    help_recent = (
+        db.query(HelpRequest)
+        .join(Participant, HelpRequest.participant_id == Participant.id)
+        .filter(Participant.workshop_id == workshop.id)
+        .order_by(desc(HelpRequest.created_at))
+        .limit(20)
+        .all()
+    )
+    help_payload = []
+    for h in help_recent:
+        help_payload.append(
+            {
+                "id": h.id,
+                "participant_id": h.participant_id,
+                "participant_name": h.participant.name,
+                "message": h.message,
+                "created_at": h.created_at.isoformat(),
+            }
+        )
+
+    return {
+        "ok": True,
+        "server_time": _utcnow().isoformat(),
+        "leaderboard": leaderboard,
+        "help_requests": help_payload,
+        "milestones": milestones,
+    }

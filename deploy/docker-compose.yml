@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  helmsman:
+    build: .
+    image: workshop-helmsman:0.1
+    container_name: workshop-helmsman
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      BIND_HOST: "0.0.0.0"
+      BIND_PORT: "8001"
+    volumes:
+      - helmsman-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  helmsman-data:

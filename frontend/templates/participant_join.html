@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ workshop.name }} · Join{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>{{ workshop.name }}</h1>
+  <p class="lede">Enter your name to join. No account, no email — just a nickname the facilitator can recognise.</p>
+
+  <form method="post" action="/w/{{ workshop.participant_slug }}" class="stack">
+    <label>
+      <span>Display name</span>
+      <input type="text" name="name" required maxlength="120"
+             placeholder="e.g. Priya, anu from Delhi, J. Smith" />
+    </label>
+    <button class="btn btn-primary" type="submit">Join workshop</button>
+  </form>
+</section>
+{% endblock %}

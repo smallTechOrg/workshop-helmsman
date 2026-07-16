@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Workshop Helmsman · Home{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Run a remote workshop without losing the room.</h1>
+  <p class="lede">
+    Spin up a workshop, share two links, watch participants move through
+    milestones in real time. No installs, no accounts.
+  </p>
+  <div class="cta-row">
+    <a class="btn btn-primary" href="/admin/new">+ Create new workshop</a>
+    <a class="btn" href="/workshops">Browse local workshops</a>
+  </div>
+</section>
+
+<section class="grid two">
+  <div class="card">
+    <h2>Already have an admin link?</h2>
+    <p>The URL the facilitator sees was given by whoever ran the session. It looks like:</p>
+    <code class="url-example">/admin/<token></code>
+    <p>Open that URL directly to revisit the dashboard.</p>
+  </div>
+  <div class="card">
+    <h2>Try it instantly (seeded demo)</h2>
+    <p>A pre-seeded <strong>{{ demo_slug|e }}</strong> workshop is ready for poking.</p>
+    <div class="cta-row">
+      <a class="btn" href="/admin/{{ demo_admin }}">Open demo dashboard</a>
+      <a class="btn" href="/w/{{ demo_slug }}">Join as participant</a>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Recent local workshops</h2>
+  {% if workshops %}
+    <ul class="plain-list">
+      {% for w in workshops %}
+        <li>
+          <code>/admin/{{ w.admin_token }}</code>
+          ·
+          <a href="/w/{{ w.participant_slug }}"><code>/w/{{ w.participant_slug }}</code></a>
+          ·
+          <span class="muted">{{ w.name }}{% if w.archived %} · archived{% elif w.is_expired() %} · expired{% endif %}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No workshops yet. Create the first one.</p>
+  {% endif %}
+</section>
+{% endblock %}
