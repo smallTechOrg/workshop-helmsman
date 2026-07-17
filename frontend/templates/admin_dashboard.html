@@ -22,7 +22,10 @@
   <div class="link-row">
     <div>
       <small class="muted">Participant link</small>
-      <code class="big-link" id="participant-link">/w/{{ workshop.participant_slug }}</code>
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <code class="big-link" id="participant-link">/w/{{ workshop.participant_slug }}</code>
+        <button class="btn btn-small" id="copy-btn" type="button">Copy link</button>
+      </div>
     </div>
     <div>
       <small class="muted">Admin link (keep secret)</small>
@@ -116,6 +119,27 @@
 {% endblock %}
 {% block scripts %}
 <script>
+  // Copy-to-clipboard for participant URL
+  (function () {
+    const link = document.getElementById('participant-link');
+    if (!link) return;
+    const btn = document.getElementById('copy-btn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      const full = window.location.origin + link.textContent.trim();
+      navigator.clipboard.writeText(full).then(function () {
+        btn.textContent = 'Copied!';
+        setTimeout(function () { btn.textContent = 'Copy link'; }, 2000);
+      }).catch(function () {
+        // Fallback: select the text so user can Cmd-C manually
+        const range = document.createRange();
+        range.selectNode(link);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+      });
+    });
+  })();
+
   // Soft polling on the admin dashboard too, so multi-tab facilitators see live updates.
   (function () {
     const tbody = document.getElementById('participants-tbody');

@@ -46,7 +46,8 @@ def _on_startup() -> None:
 # --- Helpers ---
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    # SQLite stores naive datetimes; return naive UTC to match what comes back.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _parse_milestones(raw: str) -> list[dict]:
@@ -239,30 +240,164 @@ def admin_dashboard(
     )
 
 
-# --- Admin: explicit stubs ---
+# --- Admin: edit workshop ---
 
-def _stub_page(request: Request, label: str, admin_token: str) -> HTMLResponse:
+@app.get("/admin/{admin_token}/edit", response_class=HTMLResponse)
+def admin_edit_form(
+    request: Request, admin_token: str, db: Session = Depends(get_db)
+) -> HTMLResponse:
+    workshop = require_workshop_by_admin_token(db, admin_token)
+    milestones = workshop.milestones()
+    # Build textarea text: "title: description" per line
+    milestones_text = "\n".join(
+        f"{m['title']}: {m['description']}" if m.get("description") else m["title"]
+        for m in milestones
+    )
+    # TTL as hours from now (at least 1) — normalize to naive for subtraction
+    now = _utcnow()
+    if now.tzinfo is not None:
+        now = now.replace(tzinfo=None)
+    exp = workshop.expires_at
+    if exp.tzinfo is not None:
+        exp = exp.replace(tzinfo=None)
+    ttl_hours = max(1, round((exp - now).total_seconds() / 3600))
     return _render(
         request,
-        "_stubs.html",
-        label=label,
-        admin_token=admin_token,
+        "admin_edit.html",
+        workshop=workshop,
+        milestones_text=milestones_text,
+        ttl_hours=ttl_hours,
     )
 
 
-@app.get("/admin/{admin_token}/edit", response_class=HTMLResponse)
-def admin_edit_stub(request: Request, admin_token: str) -> HTMLResponse:
-    return _stub_page(request, "Edit workshop (milestones, expiry, name)", admin_token)
+@app.post("/admin/{admin_token}/edit")
+def admin_edit_save(
+    request: Request,
+    admin_token: str,
+    name: str = Form(...),
+    milestones: str = Form(""),
+    ttl_hours: int = Form(8),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    workshop = require_workshop_by_admin_token(db, admin_token)
+    workshop.name = (name or "").strip() or workshop.name
+    parsed = _parse_milestones(milestones)
+    workshop.milestone_config = json.dumps(parsed)
+    workshop.expires_at = _utcnow() + timedelta(hours=max(1, min(ttl_hours, 168)))
+    db.commit()
+    return RedirectResponse(url=f"/admin/{admin_token}", status_code=303)
 
 
-@app.get("/admin/{admin_token}/export.csv", response_class=HTMLResponse)
-def admin_export_stub(request: Request, admin_token: str) -> HTMLResponse:
-    return _stub_page(request, "Export CSV (full audit)", admin_token)
+# --- Admin: export CSV ---
 
+@app.get("/admin/{admin_token}/export.csv")
+def admin_export_csv(
+    admin_token: str,
+    db: Session = Depends(get_db),
+):
+    """Stream a CSV of all participants, completions, and help requests."""
+    import csv
+    import io
+
+    workshop = require_workshop_by_admin_token(db, admin_token)
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        [
+            "participant_name",
+            "joined_at",
+            "milestone_title",
+            "completed_at",
+            "help_message",
+            "help_created_at",
+        ]
+    )
+
+    # Left-join participants → completions → help_requests
+    participants = (
+        db.query(Participant)
+        .filter(Participant.workshop_id == workshop.id)
+        .order_by(Participant.joined_at.asc())
+        .all()
+    )
+    for p in participants:
+        # Each participant may have 0..N completions and 0..M help requests.
+        # Emit one row per completion (N rows) or, if none, one row with only
+        # participant data; then one row per help_request (M rows).
+        help_reqs = sorted(p.help_requests, key=lambda h: h.created_at)
+        if not p.completions and not help_reqs:
+            writer.writerow([p.name, p.joined_at.isoformat(), "", "", "", ""])
+            continue
+        comp_by_mid = {c.milestone_id: c for c in p.completions}
+        all_mids = sorted(comp_by_mid.keys())
+        all_help_idx = 0
+        # Emit one row per milestone (use first help_request for that milestone slot)
+        for mid in all_mids:
+            c = comp_by_mid[mid]
+            help_msg = ""
+            help_ts = ""
+            # Pair help requests round-robin to milestones
+            if all_help_idx < len(help_reqs):
+                h = help_reqs[all_help_idx]
+                help_msg = h.message
+                help_ts = h.created_at.isoformat()
+                all_help_idx += 1
+            writer.writerow(
+                [
+                    p.name,
+                    p.joined_at.isoformat(),
+                    c.milestone_title,
+                    c.completed_at.isoformat(),
+                    help_msg,
+                    help_ts,
+                ]
+            )
+        # Remaining help requests (beyond milestone count) with blank completion cols
+        while all_help_idx < len(help_reqs):
+            h = help_reqs[all_help_idx]
+            writer.writerow([p.name, p.joined_at.isoformat(), "", "", h.message, h.created_at.isoformat()])
+            all_help_idx += 1
+
+    buffer.seek(0)
+    from starlette.responses import StreamingResponse
+    ts = _utcnow().strftime("%Y%m%d-%H%M%S")
+    filename = f"workshop-{workshop.name}-{ts}.csv"
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# --- Admin: clone workshop ---
 
 @app.post("/admin/{admin_token}/clone")
-def admin_clone_stub(request: Request, admin_token: str) -> HTMLResponse:
-    return _stub_page(request, "Clone workshop into a new session", admin_token)
+def admin_clone(
+    request: Request,
+    admin_token: str,
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Create a new workshop with the same milestone config but fresh tokens."""
+    src = require_workshop_by_admin_token(db, admin_token)
+    src_milestones = src.milestones()
+
+    # Compute TTL: use the same default (8h) rather than copying the absolute
+    # expiry timestamp, so a 10-minute-old workshop still gives full 8h.
+    DEFAULT_TTL_HOURS = 8
+    now = _utcnow()
+    clone = Workshop(
+        name=src.name,
+        created_at=now,
+        expires_at=now + timedelta(hours=DEFAULT_TTL_HOURS),
+        admin_token=generate_admin_token(),
+        participant_slug=generate_participant_slug(),
+        milestone_config=json.dumps(src_milestones),
+        archived=False,
+    )
+    db.add(clone)
+    db.commit()
+    return RedirectResponse(url=f"/admin/{clone.admin_token}", status_code=303)
 
 
 # --- Local workshops index (Phase 3 stub) ---

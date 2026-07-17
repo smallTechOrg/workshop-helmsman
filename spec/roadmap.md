@@ -50,25 +50,33 @@ curl -sf http://localhost:8001/healthz  # {"status":"ok","db":"ok"}
 
 ---
 
-## Phase 2 — Workshop config + export
+## Phase 2 — Workshop config + export ✅
 
 **Goal.** Facilitators can iterate on a workshop without losing it:
 edit milestones after launch, export a full audit CSV, and spin up
 next-session clones from a previous workshop's config.
 
 **Slices.**
-- Edit-after-create: form on `/admin/<token>/edit` rewrites
-  `workshop.milestone_config` and/or `expires_at`. Existing
-  `milestone_completion.milestone_title` rows keep their old title (audit
-  fidelity); future completions use the new title.
-- Real `/admin/<token>/export.csv`: streams a `workshop`, `participant`,
-  `milestone_completion`, `help_request` CSV dump joined by ID.
-- Clone: `POST /admin/<token>/clone` creates a new workshop with the
-  same milestones + a new TTL, redirects to its dashboard.
+- Edit-after-create: `GET/POST /admin/<token>/edit` pre-fills name,
+  milestones (as `title: description` textarea), and TTL. POST writes
+  `workshop.name`, `workshop.milestone_config` (JSON), `workshop.expires_at`.
+  Existing `milestone_completion.milestone_title` rows are preserved.
+  Redirects 303 → `/admin/<token>`.
+- Real `GET /admin/<token>/export.csv`: `Content-Type: text/csv`,
+  `Content-Disposition: attachment; filename="workshop-<name>-<ts>.csv"`.
+  Columns: `participant_name, joined_at, milestone_title, completed_at,
+  help_message, help_created_at`. Left-join all four tables. Header row always
+  present.
+- Clone: `POST /admin/<token>/clone` creates a new workshop with the same
+  milestone_config, new admin_token + participant_slug, 8 h TTL from now.
+  Redirects 303 → `/admin/<new_token>`.
+- Copy-to-clipboard on the admin dashboard: participant URL displayed with
+  a "Copy link" button that writes the full origin+slug URL to clipboard and
+  shows a 2 s "Copied!" feedback. Graceful fallback to text selection.
 
-**Gate.** Same boot command. Smoke: edit writes through, export downloads a
-non-empty CSV with header row, clone returns 303 to a new dashboard URL with
-the same milestone list.
+**Gate.** Same boot. Smoke: edit writes through, export downloads a non-empty
+CSV with header row, clone returns 303 to a new dashboard URL with the same
+milestone list.
 
 ---
 

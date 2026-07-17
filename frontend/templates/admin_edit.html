@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Edit: {{ workshop.name }}{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Edit workshop</h1>
+  <p class="lede">Changes apply immediately. Existing milestone completion records keep the milestone title they were submitted with (audit fidelity).</p>
+
+  <form method="post" class="stack">
+    <label>
+      <span>Workshop name</span>
+      <input type="text" name="name" required maxlength="200"
+             value="{{ workshop.name }}" />
+    </label>
+
+    <label>
+      <span>Milestones — one per line, format <code>title: short description</code></span>
+      <textarea name="milestones" rows="9" required>{{ milestones_text }}</textarea>
+      <small class="muted">Future completions will use these titles; past completions keep their original title.</small>
+    </label>
+
+    <label>
+      <span>Participant link expiry (hours from now)</span>
+      <input type="number" name="ttl_hours" min="1" max="168"
+             value="{{ ttl_hours }}" />
+      <small class="muted">The admin link isn't affected by expiry.</small>
+    </label>
+
+    <div class="cta-row">
+      <button class="btn btn-primary" type="submit">Save changes</button>
+      <a class="btn" href="/admin/{{ workshop.admin_token }}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}
