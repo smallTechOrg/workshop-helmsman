@@ -6,6 +6,10 @@
   <form method="post" action="/admin/{{ workshop.admin_token }}/clone" style="display:inline">
     <button class="pill" type="submit">Clone workshop</button>
   </form>
+  <form method="post" action="/admin/{{ workshop.admin_token }}/archive" style="display:inline"
+        onsubmit="return confirm('Archive this workshop? Participants will be locked out.')">
+    <button class="pill" type="submit">Archive</button>
+  </form>
 {% endblock %}
 {% block content %}
 <section class="card">
@@ -40,10 +44,7 @@
     <h2>Stats</h2>
     <div class="stat-row">
       <div><span class="stat-num">{{ participant_count }}</span><span class="stat-label">participants</span></div>
-      <div>
-        <span class="stat-num">{{ help_requests|length }}</span>
-        <span class="stat-label">help flags</span>
-      </div>
+      <div><span class="stat-num">{{ help_requests|length }}</span><span class="stat-label">help flags</span></div>
     </div>
 
     <h3 class="mt">Per-milestone completion</h3>
@@ -62,6 +63,30 @@
         {% endfor %}
       </tbody>
     </table>
+
+    {% if cohort_bar is defined and cohort_bar %}
+      <h3 class="mt">Cohort progress</h3>
+      <div class="stacked-bar-container">
+        {% for seg in cohort_bar.segments %}
+          {% if seg.count > 0 %}
+            <div class="stacked-bar-segment"
+                 style="width:{{ (100 * seg.count / cohort_bar.total)|round|int }}%; background:{{ seg.color }}"
+                 title="{{ seg.label }}: {{ seg.count }} participant(s)"></div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <div class="stacked-bar-legend">
+        {% for seg in cohort_bar.segments %}
+          {% if seg.count > 0 %}
+            <span class="stacked-legend-item">
+              <span class="stacked-legend-swatch" style="background:{{ seg.color }}"></span>
+              {{ seg.label }} ({{ seg.count }})
+            </span>
+          {% endif %}
+        {% endfor %}
+        <span class="muted" style="margin-left:auto">n={{ cohort_bar.total }}</span>
+      </div>
+    {% endif %}
   </div>
 
   <div class="card">
@@ -97,7 +122,11 @@
         {% for r in rows %}
           <tr>
             <td>{{ loop.index }}</td>
-            <td><strong>{{ r.participant.name }}</strong></td>
+            <td>
+              <a href="/admin/{{ workshop.admin_token }}/participant/{{ r.participant.id }}">
+                <strong>{{ r.participant.name }}</strong>
+              </a>
+            </td>
             <td><small class="muted">{{ r.participant.joined_at.strftime('%H:%M:%S UTC') }}</small></td>
             <td>
               <div class="bar"><div class="bar-fill" style="width: {{ r.pct }}%"></div></div>
@@ -119,32 +148,22 @@
 {% endblock %}
 {% block scripts %}
 <script>
-  // Copy-to-clipboard for participant URL
   (function () {
-    const link = document.getElementById('participant-link');
-    if (!link) return;
-    const btn = document.getElementById('copy-btn');
-    if (!btn) return;
+    var link = document.getElementById('participant-link');
+    var btn = document.getElementById('copy-btn');
+    if (!link || !btn) return;
     btn.addEventListener('click', function () {
-      const full = window.location.origin + link.textContent.trim();
+      var full = window.location.origin + link.textContent.trim();
       navigator.clipboard.writeText(full).then(function () {
         btn.textContent = 'Copied!';
         setTimeout(function () { btn.textContent = 'Copy link'; }, 2000);
       }).catch(function () {
-        // Fallback: select the text so user can Cmd-C manually
-        const range = document.createRange();
+        var range = document.createRange();
         range.selectNode(link);
         window.getSelection().removeAllRanges();
         window.getSelection().addRange(range);
       });
     });
-  })();
-
-  // Soft polling on the admin dashboard too, so multi-tab facilitators see live updates.
-  (function () {
-    const tbody = document.getElementById('participants-tbody');
-    if (!tbody) return;
-    setInterval(() => location.reload(), 15000);
   })();
 </script>
 {% endblock %}

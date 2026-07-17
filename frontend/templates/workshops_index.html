@@ -3,15 +3,36 @@
 {% block content %}
 <section class="card">
   <h1>Local workshops</h1>
-  <p class="lede">Every workshop ever created on this instance. The full admin/archive UX arrives in Phase 3.</p>
+  <p class="lede">Every workshop ever created on this instance.</p>
+
+  <div class="filter-bar">
+    <input type="text" id="workshop-search" placeholder="Search by name..." />
+    <span class="muted" id="search-count"></span>
+  </div>
+
   {% if items %}
-    <table class="table">
-      <thead><tr><th>Name</th><th>Created</th><th>Status</th><th>Links</th></tr></thead>
+    <table class="table" id="workshops-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Created</th>
+          <th>Participants</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
       <tbody>
         {% for w in items %}
-          <tr>
-            <td><strong>{{ w.name }}</strong></td>
+          <tr class="workshop-row">
+            <td><strong class="ws-name">{{ w.name }}</strong></td>
             <td><small class="muted">{{ w.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</small></td>
+            <td>
+              {% if w._participant_count is defined %}
+                {{ w._participant_count }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
             <td>
               {% if w.archived %}<span class="badge badge-archived">archived</span>
               {% elif w.is_expired() %}<span class="badge badge-expired">expired</span>
@@ -19,14 +40,41 @@
             </td>
             <td>
               <a class="pill" href="/admin/{{ w.admin_token }}">dashboard</a>
-              <a class="pill" href="/w/{{ w.participant_slug }}">participant</a>
+              {% if not w.archived and not w.is_expired() %}
+                <a class="pill" href="/w/{{ w.participant_slug }}">participant</a>
+              {% else %}
+                <span class="muted">ended</span>
+              {% endif %}
             </td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
+    {% if items|length == 50 %}
+      <p class="muted"><small>Showing 50 most recent. Archived older workshops from the dashboard.</small></p>
+    {% endif %}
   {% else %}
     <p class="muted">No workshops yet. Create one from the home page.</p>
   {% endif %}
 </section>
+{% endblock %}
+{% block scripts %}
+<script>
+  (function () {
+    var input = document.getElementById('workshop-search');
+    var rows = document.querySelectorAll('.workshop-row');
+    var count = document.getElementById('search-count');
+    input.addEventListener('input', function () {
+      var q = input.value.toLowerCase();
+      var visible = 0;
+      rows.forEach(function (tr) {
+        var name = tr.querySelector('.ws-name').textContent.toLowerCase();
+        var show = !q || name.includes(q);
+        tr.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+      count.textContent = q ? visible + ' / ' + rows.length + ' match' : '';
+    });
+  })();
+</script>
 {% endblock %}

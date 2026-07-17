@@ -228,6 +228,32 @@ def admin_dashboard(
             .count()
         )
         stats.append({**m, "count": c, "pct": int(round(100 * c / max(len(participants), 1)))})
+    # Cohort stacked-bar: how many participants have completed 0, 1, 2, ... milestones?
+    COHORT_COLORS = ["#ef6a6a", "#d68c44", "#e4c44a", "#44d39a", "#7aa2ff", "#b07fdb", "#ec8898", "#88d4ab"]
+    total = len(participants)
+    done_counts: dict[int, int] = {}
+    for r in rows:
+        k = r["completed_count"]
+        done_counts[k] = done_counts.get(k, 0) + 1
+    max_milestones = len(milestones)
+    segments = []
+    for k in range(max_milestones + 1):
+        cnt = done_counts.get(k, 0)
+        if cnt > 0 or k == 0:
+            segments.append({
+                "label": f"{k} done" if k < max_milestones else "all done",
+                "count": cnt,
+                "color": COHORT_COLORS[k % len(COHORT_COLORS)],
+            })
+    # Always show at least one segment
+    if not segments and total == 0:
+        segments = [{"label": "0 done", "count": 0, "color": COHORT_COLORS[0]}]
+    total_done = sum(r["completed_count"] for r in rows)
+    cohort_bar = {
+        "segments": segments,
+        "total": total,
+        "pct": int(round(100 * total_done / max(total * max(1, max_milestones), 1))),
+    }
     return _render(
         request,
         "admin_dashboard.html",
@@ -237,6 +263,7 @@ def admin_dashboard(
         stats=stats,
         help_requests=help_requests,
         participant_count=len(participants),
+        cohort_bar=cohort_bar,
     )
 
 
@@ -400,13 +427,71 @@ def admin_clone(
     return RedirectResponse(url=f"/admin/{clone.admin_token}", status_code=303)
 
 
-# --- Local workshops index (Phase 3 stub) ---
+# --- Admin: archive workshop ---
+
+@app.post("/admin/{admin_token}/archive")
+def admin_archive(
+    request: Request,
+    admin_token: str,
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Soft-delete: mark workshop as archived, redirects back to dashboard."""
+    workshop = require_workshop_by_admin_token(db, admin_token)
+    workshop.archived = True
+    db.commit()
+    return RedirectResponse(url=f"/admin/{admin_token}", status_code=303)
+
+
+# --- Admin: per-participant drill-down ---
+
+@app.get("/admin/{admin_token}/participant/{pid}", response_class=HTMLResponse)
+def admin_participant_drilldown(
+    request: Request,
+    admin_token: str,
+    pid: int,
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    """Full timeline for one participant: completions + help requests."""
+    workshop = require_workshop_by_admin_token(db, admin_token)
+    participant = find_participant(db, workshop.id, pid)
+    if participant is None:
+        raise HTTPException(status_code=404, detail="Participant not found")
+    completions = (
+        db.query(MilestoneCompletion)
+        .filter(MilestoneCompletion.participant_id == pid)
+        .order_by(MilestoneCompletion.completed_at.asc())
+        .all()
+    )
+    help_reqs = (
+        db.query(HelpRequest)
+        .filter(HelpRequest.participant_id == pid)
+        .order_by(HelpRequest.created_at.asc())
+        .all()
+    )
+    return _render(
+        request,
+        "participant_drilldown.html",
+        workshop=workshop,
+        participant=participant,
+        completions=completions,
+        help_requests=help_reqs,
+    )
+
+
+# --- Local workshops index (Phase 3) ---
 
 @app.get("/workshops", response_class=HTMLResponse)
 def workshops_index(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     items = (
         db.query(Workshop).order_by(desc(Workshop.created_at)).limit(50).all()
     )
+    # Attach participant counts.
+    for w in items:
+        w._participant_count = (
+            db.query(Participant)
+            .filter(Participant.workshop_id == w.id)
+            .count()
+        )
     return _render(request, "workshops_index.html", items=items)
 
 
@@ -420,8 +505,10 @@ def participant_join(
     wid: str | None = None,
 ) -> HTMLResponse:
     workshop = find_workshop_by_slug(db, slug)
-    if workshop is None or workshop.archived:
+    if workshop is None:
         raise HTTPException(status_code=404, detail="Workshop not found")
+    if workshop.archived:
+        return _render(request, "workshop_archived.html", workshop=workshop)
     if workshop.is_expired():
         return _render(request, "workshop_expired.html", workshop=workshop)
 

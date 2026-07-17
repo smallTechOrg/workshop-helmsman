@@ -223,6 +223,94 @@ code.url-example {
 .stat-num { font-size: 1.6rem; font-weight: 600; margin-right: 6px; }
 .stat-label { color: var(--text-muted); }
 
+/* Phase 3 — search / filter */
+.filter-bar { display: flex; align-items: center; gap: 12px; margin: 14px 0; }
+.filter-bar input[type="text"] {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  min-width: 220px;
+}
+.filter-bar input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Phase 3 — cohort stacked bar */
+.stacked-bar-container {
+  display: flex;
+  height: 28px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.stacked-bar-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2px;
+  transition: width 0.4s ease;
+}
+.stacked-bar-label {
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  pointer-events: none;
+}
+.stacked-bar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-top: 6px;
+}
+.stacked-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.stacked-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* Phase 3 — pill-archive */
+.pill-archive { color: var(--danger); border-color: var(--danger); }
+.pill-archive:hover { background: rgba(239,106,106,0.15); }
+
+/* Phase 3 — timeline (drill-down page) */
+.timeline { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0; }
+.timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.timeline-item:last-child { border-bottom: none; }
+.timeline-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.timeline-icon-done { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
+.timeline-icon-help { background: rgba(214,140,68,0.18); color: var(--expired); border: 1px solid var(--expired); }
+.timeline-body { display: flex; flex-direction: column; gap: 3px; }
+
 .footer {
   text-align: center;
   color: var(--text-muted);
