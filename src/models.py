@@ -62,6 +62,67 @@ class FormTemplate(Base):
             return []
 
 
+# --- Phase 5: Agenda Templates ---
+
+DEFAULT_AGENDA_TEMPLATES = [
+    {
+        "name": "4-Phase Workshop",
+        "milestones": [
+            {"title": "Setup", "description": "Environment ready, repo cloned"},
+            {"title": "API Key", "description": "LLM provider key configured"},
+            {"title": "First Build", "description": "End-to-end hello world shipped"},
+            {"title": "Done", "description": "Wrap-up and Q&A"},
+        ],
+    },
+    {
+        "name": "6-Phase Sprint",
+        "milestones": [
+            {"title": "Kickoff", "description": "Goals and team alignment"},
+            {"title": "Setup", "description": "Dev environment configured"},
+            {"title": "Core Feature", "description": "Primary feature built"},
+            {"title": "Testing", "description": "Tests written and passing"},
+            {"title": "Polish", "description": "UI and edge cases addressed"},
+            {"title": "Demo", "description": "Present working result"},
+        ],
+    },
+    {
+        "name": "3-Phase Quickstart",
+        "milestones": [
+            {"title": "Intro", "description": "Context and learning objectives"},
+            {"title": "Build", "description": "Hands-on implementation"},
+            {"title": "Review", "description": "Discussion and next steps"},
+        ],
+    },
+]
+
+
+class AgendaTemplate(Base):
+    """A reusable named agenda template (list of milestone configs).
+
+    Each milestone has: ``title`` (required), ``description`` (optional),
+    and ``help_tip`` (optional — facilitator tip shown on tracker).
+
+    A Workshop stores a *snapshot* of its milestones when created, so editing
+    a template later never mutates existing workshops.
+    """
+
+    __tablename__ = "agenda_template"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    milestones_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+
+    def milestones(self) -> list[dict]:
+        import json
+
+        try:
+            data = json.loads(self.milestones_json or "[]")
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+
 class Workshop(Base):
     __tablename__ = "workshop"
 

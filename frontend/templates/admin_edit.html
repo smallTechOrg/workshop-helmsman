@@ -12,6 +12,17 @@
              value="{{ workshop.name }}" />
     </label>
 
+    <details class="advanced" open>
+      <summary>Agenda templates</summary>
+      <p class="muted small">Pick a template to replace the milestones below.</p>
+      <select name="agenda_template_id" id="agenda-template-select">
+        <option value="">— Custom milestones —</option>
+        {% for tpl in agenda_templates %}
+        <option value="{{ tpl.id }}" data-milestones='{{ tpl.milestones_json }}'>{{ tpl.name }}</option>
+        {% endfor %}
+      </select>
+    </details>
+
     <label>
       <span>Milestones — one per line, format <code>title: short description</code></span>
       <textarea name="milestones" rows="9" required>{{ milestones_text }}</textarea>
@@ -31,4 +42,23 @@
     </div>
   </form>
 </section>
+
+<script>
+  document.getElementById('agenda-template-select').addEventListener('change', function () {
+    var select = this;
+    var textarea = document.querySelector('textarea[name="milestones"]');
+    if (!textarea) return;
+    var opt = select.options[select.selectedIndex];
+    if (!opt.value) return;
+    var milestonesJson = opt.getAttribute('data-milestones');
+    if (milestonesJson) {
+      try {
+        var milestones = JSON.parse(milestonesJson);
+        textarea.value = milestones.map(function (m) {
+          return (m.title + (m.description ? ': ' + m.description : ''));
+        }).join('\n');
+      } catch (e) {}
+    }
+  });
+</script>
 {% endblock %}

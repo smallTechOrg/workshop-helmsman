@@ -23,9 +23,11 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from .db import get_db, init_db
+from .db import get_db, init_db, session_scope
 from .models import (
+    DEFAULT_AGENDA_TEMPLATES,
     DEFAULT_FORM_SCHEMA,
+    AgendaTemplate,
     FormTemplate,
     HelpRequest,
     MilestoneCompletion,
@@ -57,6 +59,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 @app.on_event("startup")
 def _on_startup() -> None:
     init_db()
+    _seed_agenda_templates()
 
 
 # --- Helpers ---
@@ -64,6 +67,24 @@ def _on_startup() -> None:
 def _utcnow() -> datetime:
     # SQLite stores naive datetimes; return naive UTC to match what comes back.
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _seed_agenda_templates() -> None:
+    """Seed 2-3 starter agenda templates on first run; idempotent."""
+    import json
+
+    with session_scope() as db:
+        existing = db.query(AgendaTemplate).count()
+        if existing > 0:
+            return
+        now = _utcnow()
+        for tpl in DEFAULT_AGENDA_TEMPLATES:
+            at = AgendaTemplate(
+                name=tpl["name"],
+                created_at=now,
+                milestones_json=json.dumps(tpl["milestones"]),
+            )
+            db.add(at)
 
 
 def _parse_milestones(raw: str) -> list[dict]:
@@ -324,6 +345,9 @@ def admin_new_form(request: Request, db: Session = Depends(get_db)) -> HTMLRespo
     templates_list = (
         db.query(FormTemplate).order_by(FormTemplate.created_at.desc()).all()
     )
+    agenda_templates = (
+        db.query(AgendaTemplate).order_by(AgendaTemplate.created_at.asc()).all()
+    )
     return _render(
         request,
         "admin_new.html",
@@ -331,6 +355,7 @@ def admin_new_form(request: Request, db: Session = Depends(get_db)) -> HTMLRespo
         default_ttl=8,
         templates_list=templates_list,
         default_form_fields=DEFAULT_FORM_SCHEMA,
+        agenda_templates=agenda_templates,
     )
 
 
@@ -344,6 +369,7 @@ def admin_new_create(
     template_id: str = Form(""),
     save_as_template: str = Form(""),
     template_name: str = Form(""),
+    agenda_template_id: str = Form(""),
     db: Session = Depends(get_db),
 ):
     name = (name or "").strip()
@@ -351,7 +377,29 @@ def admin_new_create(
         raise HTTPException(status_code=400, detail="Workshop name is required")
     if ttl_hours < 1 or ttl_hours > 7 * 24:
         ttl_hours = 8
-    parsed = _parse_milestones(milestones)
+
+    # Resolve milestones: use _parse_milestones (textarea) OR load from agenda template.
+    parsed: list[dict]
+    if agenda_template_id and agenda_template_id.isdigit():
+        agenda_tpl = (
+            db.query(AgendaTemplate)
+            .filter(AgendaTemplate.id == int(agenda_template_id))
+            .first()
+        )
+        if agenda_tpl is not None:
+            agenda_milestones = agenda_tpl.milestones()
+            if agenda_milestones:
+                # Assign stable ids
+                parsed = [
+                    {"id": f"m{idx}", **m}
+                    for idx, m in enumerate(agenda_milestones)
+                ]
+            else:
+                parsed = _parse_milestones(milestones)
+        else:
+            parsed = _parse_milestones(milestones)
+    else:
+        parsed = _parse_milestones(milestones)
 
     # Resolve form schema:
     # 1. If fields_json has any fields, use that.
@@ -579,6 +627,9 @@ def admin_edit_form(
     templates_list = (
         db.query(FormTemplate).order_by(FormTemplate.created_at.desc()).all()
     )
+    agenda_templates = (
+        db.query(AgendaTemplate).order_by(AgendaTemplate.created_at.asc()).all()
+    )
     return _render(
         request,
         "admin_edit.html",
@@ -589,6 +640,7 @@ def admin_edit_form(
         form_schema_json_str=json.dumps(workshop.form_schema()),
         form_template_id=workshop.form_template_id,
         templates_list=templates_list,
+        agenda_templates=agenda_templates,
     )
 
 
@@ -600,11 +652,34 @@ def admin_edit_save(
     milestones: str = Form(""),
     ttl_hours: int = Form(8),
     fields_json: str = Form(""),
+    agenda_template_id: str = Form(""),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     workshop = require_workshop_by_admin_token(db, admin_token)
     workshop.name = (name or "").strip() or workshop.name
-    parsed = _parse_milestones(milestones)
+
+    # Resolve milestones: use _parse_milestones (textarea) OR load from agenda template.
+    parsed: list[dict]
+    if agenda_template_id and agenda_template_id.isdigit():
+        agenda_tpl = (
+            db.query(AgendaTemplate)
+            .filter(AgendaTemplate.id == int(agenda_template_id))
+            .first()
+        )
+        if agenda_tpl is not None:
+            agenda_milestones = agenda_tpl.milestones()
+            if agenda_milestones:
+                parsed = [
+                    {"id": f"m{idx}", **m}
+                    for idx, m in enumerate(agenda_milestones)
+                ]
+            else:
+                parsed = _parse_milestones(milestones)
+        else:
+            parsed = _parse_milestones(milestones)
+    else:
+        parsed = _parse_milestones(milestones)
+
     workshop.milestone_config = json.dumps(parsed)
     workshop.expires_at = _utcnow() + timedelta(hours=max(1, min(ttl_hours, 168)))
 
