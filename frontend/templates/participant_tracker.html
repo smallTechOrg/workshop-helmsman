@@ -43,7 +43,7 @@
     <h2>Leaderboard</h2>
     <ol class="leaderboard" id="leaderboard-list">
       {% for row in leaderboard %}
-        <li class="leaderboard-row {% if row.is_me %}leaderboard-me{% endif %}">
+        <li class="leaderboard-row {% if row.is_me %}leaderboard-me{% endif %}{% if loop.index > 50 %} leaderboard-extra hidden{% endif %}"{% if loop.index > 50 %} style="display:none"{% endif %}>
           <span class="leaderboard-name">
             {{ row.name }}{% if row.is_me %} <small class="muted">(you)</small>{% endif %}
           </span>
@@ -54,6 +54,9 @@
         </li>
       {% endfor %}
     </ol>
+    {% if leaderboard|length > 50 %}
+      <button class="btn btn-small" id="toggle-leaderboard" type="button">Show all {{ leaderboard|length }}</button>
+    {% endif %}
     <small class="muted">Auto-refreshes every few seconds.</small>
   </div>
 </section>
@@ -124,5 +127,24 @@
   window.__helmsman = window.__helmsman || {};
   window.__helmsman.slug = {{ workshop.participant_slug|tojson }};
   window.__helmsman.meId = {{ participant.id|tojson }};
+</script>
+<script>
+  // Leaderboard: show first 50, toggle button reveals the rest in-place.
+  (function () {
+    var btn = document.getElementById('toggle-leaderboard');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        var extra = document.querySelectorAll('.leaderboard-extra');
+        var allShown = Array.prototype.some.call(extra, function (el) { return el.style.display !== 'none'; });
+        if (allShown) {
+          extra.forEach(function (el) { el.style.display = 'none'; });
+          btn.textContent = 'Show all ' + ({{ leaderboard|length }});
+        } else {
+          extra.forEach(function (el) { el.style.display = ''; });
+          btn.textContent = 'Show fewer';
+        }
+      });
+    }
+  })();
 </script>
 {% endblock %}

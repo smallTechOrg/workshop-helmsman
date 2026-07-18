@@ -464,6 +464,26 @@ def _participant_progress(participant: Participant, milestones: list[dict]) -> d
     }
 
 
+def _leaderboard_rows(
+    participants: list[Participant], milestones: list[dict], my_id: int | None = None
+) -> list[dict]:
+    """Build leaderboard rows. Call with full list; template slices to 50."""
+    out = []
+    total = len(milestones)
+    for p in participants:
+        done = {c.milestone_id for c in p.completions}
+        out.append({
+            "id": p.id,
+            "name": p.name,
+            "joined_at": p.joined_at.isoformat(),
+            "completed_count": len(done),
+            "total": total,
+            "pct": int(round(100 * len(done) / max(total, 1))),
+            "is_me": p.id == my_id,
+        })
+    return out
+
+
 # --- Health & landing ---
 
 @app.get("/healthz", response_class=JSONResponse)
@@ -474,6 +494,16 @@ def healthz(db: Session = Depends(get_db)) -> dict:
         return {"status": "ok", "db": "ok"}
     except Exception as exc:
         return JSONResponse(status_code=503, content={"status": "degraded", "db": str(exc)})
+
+
+@app.get("/healthz/ready", response_class=JSONResponse)
+def healthz_ready(db: Session = Depends(get_db)) -> dict:
+    """Kubernetes readiness probe: checks DB connectivity."""
+    try:
+        db.execute(__import__("sqlalchemy").text("SELECT 1"))
+        return {"ok": True}
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"ok": False, "error": str(exc)})
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -717,7 +747,7 @@ def admin_templates_delete(
 
 @app.get("/admin/{admin_token}", response_class=HTMLResponse)
 def admin_dashboard(
-    request: Request, admin_token: str, db: Session = Depends(get_db)
+    request: Request, admin_token: str, db: Session = Depends(get_db), page: int = 1
 ) -> HTMLResponse:
     workshop = require_workshop_by_admin_token(db, admin_token)
     milestones = workshop.milestones()
@@ -728,14 +758,27 @@ def admin_dashboard(
         .all()
     )
     rows = [_participant_progress(p, milestones) for p in participants]
+
+    # Help requests: latest 20 per page (0-indexed), with ?page=N navigation.
+    PAGE_SIZE = 20
+    page = max(1, page)
+    offset = (page - 1) * PAGE_SIZE
+    total_help = (
+        db.query(HelpRequest)
+        .join(Participant, HelpRequest.participant_id == Participant.id)
+        .filter(Participant.workshop_id == workshop.id)
+        .count()
+    )
     help_requests = (
         db.query(HelpRequest)
         .join(Participant, HelpRequest.participant_id == Participant.id)
         .filter(Participant.workshop_id == workshop.id)
         .order_by(desc(HelpRequest.created_at))
-        .limit(20)
+        .offset(offset)
+        .limit(PAGE_SIZE)
         .all()
     )
+    has_more_help = (offset + len(help_requests)) < total_help
     # Per-milestone completion stats across all participants.
     stats: list[dict] = []
     for m in milestones:
@@ -786,6 +829,8 @@ def admin_dashboard(
         participant_count=len(participants),
         cohort_bar=cohort_bar,
         help_statuses=list(HELP_STATUSES),
+        help_page=page,
+        has_more_help=has_more_help,
     )
 
 
@@ -1256,27 +1301,13 @@ def participant_me(
         c.milestone_id: c.completed_at for c in participant.completions
     }
 
-    # Leaderboard for everyone in this workshop.
+    # Leaderboard: full list (template slices to 50 for render; JS toggles hidden rows).
     all_participants = (
         db.query(Participant)
         .filter(Participant.workshop_id == workshop.id)
         .order_by(Participant.joined_at.asc())
         .all()
     )
-    leaderboard = []
-    for p in all_participants:
-        done = {c.milestone_id for c in p.completions}
-        leaderboard.append(
-            {
-                "id": p.id,
-                "name": p.name,
-                "joined_at": p.joined_at.isoformat(),
-                "completed_count": len(done),
-                "total": len(milestones),
-                "pct": int(round(100 * len(done) / max(len(milestones), 1))),
-                "is_me": p.id == participant.id,
-            }
-        )
 
     help_recent = (
         db.query(HelpRequest)
@@ -1293,7 +1324,7 @@ def participant_me(
         participant=participant,
         milestones=milestones,
         completed_ids=completed_ids,
-        leaderboard=leaderboard,
+        leaderboard=_leaderboard_rows(all_participants, milestones, participant.id),
         latest_help=help_recent,
         help_statuses=list(HELP_STATUSES),
         pending_message=None,
@@ -1400,18 +1431,6 @@ def participant_help(
         .order_by(Participant.joined_at.asc())
         .all()
     )
-    leaderboard = []
-    for p in all_participants:
-        done = {c.milestone_id for c in p.completions}
-        leaderboard.append({
-            "id": p.id,
-            "name": p.name,
-            "joined_at": p.joined_at.isoformat(),
-            "completed_count": len(done),
-            "total": len(milestones),
-            "pct": int(round(100 * len(done) / max(len(milestones), 1))),
-            "is_me": p.id == participant.id,
-        })
     my_help = (
         db.query(HelpRequest)
         .filter(HelpRequest.participant_id == participant.id)
@@ -1427,7 +1446,7 @@ def participant_help(
         milestones=milestones,
         completed_ids=completed_ids_map,
         latest_help=my_help,
-        leaderboard=leaderboard,
+        leaderboard=_leaderboard_rows(all_participants, milestones, participant.id),
         help_statuses=list(HELP_STATUSES),
         pending_message=message,
         pending_suggestion=(suggestion or "").strip(),
@@ -1518,18 +1537,10 @@ def participant_poll(
         .order_by(Participant.joined_at.asc())
         .all()
     )
-    leaderboard = []
-    for p in all_participants:
-        done = {c.milestone_id for c in p.completions}
-        leaderboard.append(
-            {
-                "id": p.id,
-                "name": p.name,
-                "completed_count": len(done),
-                "total": len(milestones),
-                "pct": int(round(100 * len(done) / max(len(milestones), 1))),
-            }
-        )
+    leaderboard_payload = [
+        {"id": p.id, "name": p.name, "completed_count": len({c.milestone_id for c in p.completions}), "total": len(milestones), "pct": int(round(100 * len({c.milestone_id for c in p.completions}) / max(len(milestones), 1)))}
+        for p in all_participants
+    ]
 
     help_recent = (
         db.query(HelpRequest)
@@ -1555,7 +1566,7 @@ def participant_poll(
     return {
         "ok": True,
         "server_time": _utcnow().isoformat(),
-        "leaderboard": leaderboard,
+        "leaderboard": leaderboard_payload,
         "help_requests": help_payload,
         "milestones": milestones,
         # Phase 4: include the form schema so the participant tracker can

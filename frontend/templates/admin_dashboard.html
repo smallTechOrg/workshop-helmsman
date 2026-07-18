@@ -116,6 +116,9 @@
     {% else %}
       <p class="muted">No one has flagged for help. Nice.</p>
     {% endif %}
+  {% if has_more_help %}
+      <a class="pill" href="/admin/{{ workshop.admin_token }}?page={{ help_page + 1 }}">Older →</a>
+    {% endif %}
   </div>
 </section>
 
@@ -130,7 +133,7 @@
       </thead>
       <tbody id="participants-tbody">
         {% for r in rows %}
-          <tr>
+          <tr{% if loop.index > 30 %} class="participant-extra hidden" style="display:none"{% endif %}>
             <td>{{ loop.index }}</td>
             <td>
               <a href="/admin/{{ workshop.admin_token }}/participant/{{ r.participant.id }}">
@@ -151,6 +154,9 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if rows|length > 30 %}
+      <button class="btn btn-small mt" id="toggle-participants" type="button">Show remaining {{ rows|length - 30 }}</button>
+    {% endif %}
   {% else %}
     <p class="muted">No one has joined yet. Share the participant link to start.</p>
   {% endif %}
@@ -175,6 +181,24 @@
         window.getSelection().addRange(range);
       });
     });
+  })();
+  // Participant table: show first 30, toggle reveals remaining.
+  (function () {
+    var btn = document.getElementById('toggle-participants');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        var extra = document.querySelectorAll('.participant-extra');
+        var anyShown = Array.prototype.some.call(extra, function (el) { return el.style.display !== 'none'; });
+        if (anyShown) {
+          extra.forEach(function (el) { el.style.display = 'none'; });
+          var total = {{ rows|length }};
+          btn.textContent = 'Show remaining ' + (total - 30);
+        } else {
+          extra.forEach(function (el) { el.style.display = ''; });
+          btn.textContent = 'Show fewer';
+        }
+      });
+    }
   })();
 </script>
 {% endblock %}
