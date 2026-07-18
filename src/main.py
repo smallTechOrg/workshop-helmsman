@@ -1,21 +1,37 @@
-"""FastAPI application: all routes for Workshop Helmsman Phase 1."""
+"""FastAPI application: all routes for Workshop Helmsman (Phases 1-4)."""
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
+import re
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from .db import get_db, init_db
-from .models import HelpRequest, MilestoneCompletion, Participant, Workshop
+from .models import (
+    DEFAULT_FORM_SCHEMA,
+    FormTemplate,
+    HelpRequest,
+    MilestoneCompletion,
+    Participant,
+    Workshop,
+)
 from .security import (
     PARTICIPANT_COOKIE,
     find_participant,
@@ -78,6 +94,155 @@ def _parse_milestones(raw: str) -> list[dict]:
     return parsed
 
 
+# --- Phase 4: form schema helpers ---
+
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify_key(label: str, fallback: str = "field") -> str:
+    """Best-effort field key derived from a label.
+
+    "Display name" -> "display_name"; "What's your role?" -> "whats_your_role".
+    Used only as an auto-fill suggestion; users can override it manually.
+    """
+    s = (label or "").strip().lower()
+    s = _SLUG_RE.sub("_", s).strip("_")
+    return (s or fallback)[:64]
+
+
+def _normalize_field(raw: dict, idx: int) -> dict | None:
+    """Sanitize a single field dict from a posted form.
+
+    Returns None if the field is unusable (no label, no key after sanitize).
+    """
+    if not isinstance(raw, dict):
+        return None
+    label = (raw.get("label") or "").strip()
+    if not label:
+        return None
+    key = (raw.get("key") or "").strip()
+    if not key:
+        key = _slugify_key(label, fallback=f"field_{idx}")
+    key = _slugify_key(key.replace(" ", "_"), fallback=f"field_{idx}")
+    ftype = raw.get("type")
+    if ftype not in ("text", "dropdown"):
+        ftype = "text"
+    placeholder = (raw.get("placeholder") or "").strip() if ftype == "text" else ""
+    required = bool(raw.get("required"))
+    options: list[str] = []
+    if ftype == "dropdown":
+        opts = raw.get("options")
+        if isinstance(opts, list):
+            for o in opts:
+                o = (str(o) if o is not None else "").strip()
+                if o:
+                    options.append(o)
+        elif isinstance(opts, str):
+            for line in opts.splitlines():
+                line = line.strip()
+                if line:
+                    options.append(line)
+        # Dedupe while preserving order.
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for o in options:
+            if o not in seen:
+                seen.add(o)
+                deduped.append(o)
+        options = deduped
+        if not options:
+            options = ["Yes", "No"]
+    field: dict = {
+        "key": key,
+        "type": ftype,
+        "label": label[:200],
+        "required": required,
+    }
+    if ftype == "text":
+        field["placeholder"] = placeholder[:200]
+    else:
+        field["options"] = options[:32]
+    return field
+
+
+def _coerce_fields_json(raw_json: str) -> list[dict]:
+    """Parse a JSON string of field dicts into a normalized, deduplicated list.
+
+    Rejects malformed JSON (returns empty list — caller must decide whether
+    to default or error). For dicts missing a key/label, we synthesize a
+    stable key from the label. Duplicate keys are deduped (later wins).
+    """
+    if not raw_json or not raw_json.strip():
+        return []
+    try:
+        data = json.loads(raw_json)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[dict] = []
+    seen_keys: dict[str, int] = {}
+    for idx, item in enumerate(data):
+        norm = _normalize_field(item, idx)
+        if norm is None:
+            continue
+        key = norm["key"]
+        if key in seen_keys:
+            # Replace prior occurrence (callers see the most recent).
+            j = seen_keys[key]
+            out[j] = norm
+            continue
+        seen_keys[key] = len(out)
+        out.append(norm)
+    return out
+
+
+def _ensure_display_name_field(fields: list[dict]) -> list[dict]:
+    """Make sure the form has at least one text field marked as the name.
+
+    The 'name' is the field whose key is 'display_name', OR the first field
+    if none is so named. If the form is empty, return the default schema.
+    """
+    if not fields:
+        return list(DEFAULT_FORM_SCHEMA)
+    return fields
+
+
+def _display_name_field(schema: list[dict]) -> dict | None:
+    """Return the field designated as the participant display name."""
+    for f in schema:
+        if f.get("key") == "display_name":
+            return f
+    return schema[0] if schema else None
+
+
+def _form_keys(schema: list[dict]) -> list[str]:
+    """Sorted-stable list of form keys for CSV columns."""
+    return [f["key"] for f in schema]
+
+
+def _collect_form_answers(schema: list[dict], form: dict) -> dict:
+    """Given a workshop schema + request.form, return an {key: value} dict.
+
+    Missing required fields are silently included as empty strings so the
+    persistence shape is predictable. Junk keys in `form` are ignored.
+    """
+    out: dict[str, str] = {}
+    for f in schema:
+        key = f.get("key")
+        if not key:
+            continue
+        # Inputs are named 'field_<key>' so we don't clash with hidden helpers.
+        v = form.get(f"field_{key}")
+        if v is None:
+            v = form.get(key)
+        if v is None:
+            v = ""
+        out[key] = str(v)[:1000]
+    return out
+
+
 def _render(request: Request, template: str, **ctx) -> HTMLResponse:
     return templates.TemplateResponse(request, template, ctx)
 
@@ -127,6 +292,7 @@ def landing(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             participant_slug="demo-walkthrough",
             milestone_config=json.dumps(milestones),
             archived=False,
+            form_schema_json=json.dumps(DEFAULT_FORM_SCHEMA),
         )
         db.add(demo)
         db.commit()
@@ -146,7 +312,7 @@ def landing(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
 # --- Admin: create workshop ---
 
 @app.get("/admin/new", response_class=HTMLResponse)
-def admin_new_form(request: Request) -> HTMLResponse:
+def admin_new_form(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     default_milestones = "\n".join(
         [
             "Setup: pick your environment and clone the starter",
@@ -155,11 +321,16 @@ def admin_new_form(request: Request) -> HTMLResponse:
             "Done: present and wrap up",
         ]
     )
+    templates_list = (
+        db.query(FormTemplate).order_by(FormTemplate.created_at.desc()).all()
+    )
     return _render(
         request,
         "admin_new.html",
         default_milestones=default_milestones,
         default_ttl=8,
+        templates_list=templates_list,
+        default_form_fields=DEFAULT_FORM_SCHEMA,
     )
 
 
@@ -169,6 +340,10 @@ def admin_new_create(
     name: str = Form(...),
     milestones: str = Form(""),
     ttl_hours: int = Form(8),
+    fields_json: str = Form(""),
+    template_id: str = Form(""),
+    save_as_template: str = Form(""),
+    template_name: str = Form(""),
     db: Session = Depends(get_db),
 ):
     name = (name or "").strip()
@@ -177,6 +352,24 @@ def admin_new_create(
     if ttl_hours < 1 or ttl_hours > 7 * 24:
         ttl_hours = 8
     parsed = _parse_milestones(milestones)
+
+    # Resolve form schema:
+    # 1. If fields_json has any fields, use that.
+    # 2. Else if template_id is set and valid, deep-copy that template's fields.
+    # 3. Else default to DEFAULT_FORM_SCHEMA.
+    fields = _coerce_fields_json(fields_json)
+    template_obj: FormTemplate | None = None
+    if not fields:
+        if template_id and template_id.isdigit():
+            template_obj = (
+                db.query(FormTemplate).filter(FormTemplate.id == int(template_id)).first()
+            )
+            if template_obj is not None:
+                fields = deepcopy(template_obj.fields())
+    fields = _ensure_display_name_field(fields)
+    if not fields:
+        fields = list(DEFAULT_FORM_SCHEMA)
+
     now = _utcnow()
     workshop = Workshop(
         name=name,
@@ -186,10 +379,105 @@ def admin_new_create(
         participant_slug=generate_participant_slug(),
         milestone_config=json.dumps(parsed),
         archived=False,
+        form_template_id=template_obj.id if template_obj else None,
+        form_schema_json=json.dumps(fields),
     )
     db.add(workshop)
+
+    # Optionally save the schema as a new named template.
+    if save_as_template and template_name.strip():
+        new_tpl = FormTemplate(
+            name=template_name.strip()[:120],
+            created_at=now,
+            fields_json=json.dumps(fields),
+        )
+        db.add(new_tpl)
+        # No flush here — commit at the end.
+
     db.commit()
+    db.refresh(workshop)
     return RedirectResponse(url=f"/admin/{workshop.admin_token}", status_code=303)
+
+
+# --- Phase 4: global template library ---
+
+
+@app.get("/admin/templates", response_class=HTMLResponse)
+def admin_templates_index(
+    request: Request, db: Session = Depends(get_db)
+) -> HTMLResponse:
+    """List all saved form templates."""
+    templates_list = (
+        db.query(FormTemplate).order_by(FormTemplate.created_at.desc()).all()
+    )
+    # Annotate with workshop usage counts.
+    for t in templates_list:
+        t._usage_count = (
+            db.query(Workshop).filter(Workshop.form_template_id == t.id).count()
+        )
+        t._fields_summary = ", ".join(
+            f.get("label", "?") for f in t.fields()
+        )[:200]
+    return _render(request, "admin_templates.html", templates_list=templates_list)
+
+
+@app.get("/admin/templates/{tid}", response_class=HTMLResponse)
+def admin_templates_edit(
+    request: Request, tid: int, db: Session = Depends(get_db)
+) -> HTMLResponse:
+    """Edit a single template's schema. Edits template — never touches existing workshop snapshots."""
+    template_obj = (
+        db.query(FormTemplate).filter(FormTemplate.id == tid).first()
+    )
+    if template_obj is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    schema = template_obj.fields()
+    return _render(
+        request,
+        "admin_template_edit.html",
+        template_obj=template_obj,
+        form_schema=schema,
+        form_schema_json_str=json.dumps(schema),
+    )
+
+
+@app.post("/admin/templates/{tid}")
+def admin_templates_save(
+    request: Request,
+    tid: int,
+    name: str = Form(""),
+    fields_json: str = Form(""),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    template_obj = (
+        db.query(FormTemplate).filter(FormTemplate.id == tid).first()
+    )
+    if template_obj is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if name.strip():
+        template_obj.name = name.strip()[:120]
+    fields = _coerce_fields_json(fields_json)
+    fields = _ensure_display_name_field(fields)
+    if not fields:
+        fields = list(DEFAULT_FORM_SCHEMA)
+    template_obj.fields_json = json.dumps(fields)
+    db.commit()
+    return RedirectResponse(url=f"/admin/templates/{tid}", status_code=303)
+
+
+@app.post("/admin/templates/{tid}/delete")
+def admin_templates_delete(
+    request: Request, tid: int, db: Session = Depends(get_db)
+) -> RedirectResponse:
+    """Delete a template. Existing workshops' snapshots remain intact."""
+    template_obj = (
+        db.query(FormTemplate).filter(FormTemplate.id == tid).first()
+    )
+    if template_obj is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    db.delete(template_obj)
+    db.commit()
+    return RedirectResponse(url="/admin/templates", status_code=303)
 
 
 # --- Admin: dashboard ---
@@ -288,12 +576,19 @@ def admin_edit_form(
     if exp.tzinfo is not None:
         exp = exp.replace(tzinfo=None)
     ttl_hours = max(1, round((exp - now).total_seconds() / 3600))
+    templates_list = (
+        db.query(FormTemplate).order_by(FormTemplate.created_at.desc()).all()
+    )
     return _render(
         request,
         "admin_edit.html",
         workshop=workshop,
         milestones_text=milestones_text,
         ttl_hours=ttl_hours,
+        form_schema=workshop.form_schema(),
+        form_schema_json_str=json.dumps(workshop.form_schema()),
+        form_template_id=workshop.form_template_id,
+        templates_list=templates_list,
     )
 
 
@@ -304,6 +599,7 @@ def admin_edit_save(
     name: str = Form(...),
     milestones: str = Form(""),
     ttl_hours: int = Form(8),
+    fields_json: str = Form(""),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     workshop = require_workshop_by_admin_token(db, admin_token)
@@ -311,6 +607,14 @@ def admin_edit_save(
     parsed = _parse_milestones(milestones)
     workshop.milestone_config = json.dumps(parsed)
     workshop.expires_at = _utcnow() + timedelta(hours=max(1, min(ttl_hours, 168)))
+
+    fields = _coerce_fields_json(fields_json)
+    fields = _ensure_display_name_field(fields)
+    if not fields:
+        fields = list(DEFAULT_FORM_SCHEMA)
+    workshop.form_schema_json = json.dumps(fields)
+    # NOTE: editing a workshop does NOT rewrite form_template_id. The template
+    # is a starting point; the snapshot is what the join page uses.
     db.commit()
     return RedirectResponse(url=f"/admin/{admin_token}", status_code=303)
 
@@ -322,26 +626,36 @@ def admin_export_csv(
     admin_token: str,
     db: Session = Depends(get_db),
 ):
-    """Stream a CSV of all participants, completions, and help requests."""
-    import csv
-    import io
+    """Stream a CSV of all participants, completions, help requests, and form answers.
 
+    Columns:
+      - core (always): participant_name, joined_at, milestone_title,
+        completed_at, help_message, help_created_at
+      - per-form-field (Phase 4): one column per schema key, in schema order,
+        named `field_<key>` for clarity.
+
+    Rows: one row per (participant, milestone). If a participant has no
+    completions but has help requests, we emit one row with empty milestone
+    columns and one row per help request. Helper-extra help requests beyond
+    the milestone count are emitted as additional rows with blank milestone
+    columns.
+    """
     workshop = require_workshop_by_admin_token(db, admin_token)
+    schema = workshop.form_schema()
+    form_keys = _form_keys(schema)
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(
-        [
-            "participant_name",
-            "joined_at",
-            "milestone_title",
-            "completed_at",
-            "help_message",
-            "help_created_at",
-        ]
-    )
+    header = [
+        "participant_name",
+        "joined_at",
+        "milestone_title",
+        "completed_at",
+        "help_message",
+        "help_created_at",
+    ] + [f"field_{k}" for k in form_keys]
+    writer.writerow(header)
 
-    # Left-join participants → completions → help_requests
     participants = (
         db.query(Participant)
         .filter(Participant.workshop_id == workshop.id)
@@ -349,45 +663,47 @@ def admin_export_csv(
         .all()
     )
     for p in participants:
-        # Each participant may have 0..N completions and 0..M help requests.
-        # Emit one row per completion (N rows) or, if none, one row with only
-        # participant data; then one row per help_request (M rows).
+        answers = p.answers()
+        # Per-participant column tuple: empty unless row is tied to a milestone slot.
         help_reqs = sorted(p.help_requests, key=lambda h: h.created_at)
         if not p.completions and not help_reqs:
-            writer.writerow([p.name, p.joined_at.isoformat(), "", "", "", ""])
+            row = [p.name, p.joined_at.isoformat(), "", "", "", ""]
+            for k in form_keys:
+                row.append(answers.get(k, ""))
+            writer.writerow(row)
             continue
         comp_by_mid = {c.milestone_id: c for c in p.completions}
         all_mids = sorted(comp_by_mid.keys())
         all_help_idx = 0
-        # Emit one row per milestone (use first help_request for that milestone slot)
         for mid in all_mids:
             c = comp_by_mid[mid]
             help_msg = ""
             help_ts = ""
-            # Pair help requests round-robin to milestones
             if all_help_idx < len(help_reqs):
                 h = help_reqs[all_help_idx]
                 help_msg = h.message
                 help_ts = h.created_at.isoformat()
                 all_help_idx += 1
-            writer.writerow(
-                [
-                    p.name,
-                    p.joined_at.isoformat(),
-                    c.milestone_title,
-                    c.completed_at.isoformat(),
-                    help_msg,
-                    help_ts,
-                ]
-            )
-        # Remaining help requests (beyond milestone count) with blank completion cols
+            row = [
+                p.name,
+                p.joined_at.isoformat(),
+                c.milestone_title,
+                c.completed_at.isoformat(),
+                help_msg,
+                help_ts,
+            ]
+            for k in form_keys:
+                row.append(answers.get(k, ""))
+            writer.writerow(row)
         while all_help_idx < len(help_reqs):
             h = help_reqs[all_help_idx]
-            writer.writerow([p.name, p.joined_at.isoformat(), "", "", h.message, h.created_at.isoformat()])
+            row = [p.name, p.joined_at.isoformat(), "", "", h.message, h.created_at.isoformat()]
+            for k in form_keys:
+                row.append(answers.get(k, ""))
+            writer.writerow(row)
             all_help_idx += 1
 
     buffer.seek(0)
-    from starlette.responses import StreamingResponse
     ts = _utcnow().strftime("%Y%m%d-%H%M%S")
     filename = f"workshop-{workshop.name}-{ts}.csv"
     return StreamingResponse(
@@ -408,6 +724,7 @@ def admin_clone(
     """Create a new workshop with the same milestone config but fresh tokens."""
     src = require_workshop_by_admin_token(db, admin_token)
     src_milestones = src.milestones()
+    src_schema = src.form_schema()
 
     # Compute TTL: use the same default (8h) rather than copying the absolute
     # expiry timestamp, so a 10-minute-old workshop still gives full 8h.
@@ -421,6 +738,11 @@ def admin_clone(
         participant_slug=generate_participant_slug(),
         milestone_config=json.dumps(src_milestones),
         archived=False,
+        # Snapshot the form schema; do NOT carry the template id (a clone
+        # is a fresh workshop — if the user later edits the snapshot, we
+        # don't muddle authorship with the original template).
+        form_template_id=None,
+        form_schema_json=json.dumps(src_schema),
     )
     db.add(clone)
     db.commit()
@@ -451,7 +773,11 @@ def admin_participant_drilldown(
     pid: int,
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
-    """Full timeline for one participant: completions + help requests."""
+    """Full timeline for one participant: completions + help requests.
+
+    Phase 4: also surfaces the captured join-form answers as a 'Join inputs'
+    panel, falling back to a sensible default if answers are missing.
+    """
     workshop = require_workshop_by_admin_token(db, admin_token)
     participant = find_participant(db, workshop.id, pid)
     if participant is None:
@@ -468,6 +794,19 @@ def admin_participant_drilldown(
         .order_by(HelpRequest.created_at.asc())
         .all()
     )
+    schema = workshop.form_schema()
+    answers = participant.answers()
+    # Render the answers panel — ordered by schema when possible.
+    # Pass pre-built (label, value) tuples to the template for simplicity.
+    answers_panel: list[tuple[str, str]] = []
+    for f in schema:
+        v = answers.get(f.get("key", ""), "")
+        label = f.get("label") or f.get("key") or ""
+        answers_panel.append((label, str(v)))
+    # If schema is empty but participant has answers, render them raw.
+    if not schema and answers:
+        for k, v in answers.items():
+            answers_panel.append((k, str(v)))
     return _render(
         request,
         "participant_drilldown.html",
@@ -475,6 +814,7 @@ def admin_participant_drilldown(
         participant=participant,
         completions=completions,
         help_requests=help_reqs,
+        answers_panel=answers_panel,
     )
 
 
@@ -527,26 +867,83 @@ def participant_join(
     if existing_pid is not None:
         return RedirectResponse(url=f"/w/{slug}/me", status_code=303)
 
-    return _render(request, "participant_join.html", workshop=workshop)
+    schema = workshop.form_schema()
+    name_field = _display_name_field(schema)
+    # Convenient view for the template: list of form fields to render.
+    return _render(
+        request,
+        "participant_join.html",
+        workshop=workshop,
+        form_schema=schema,
+        name_field=name_field,
+    )
 
 
 @app.post("/w/{slug}")
 def participant_register(
     request: Request,
     slug: str,
-    name: str = Form(...),
+    # Sentinel Form(...) parameters ensure FastAPI parses the multipart body
+    # into request._form. We re-read it inside the handler so we can iterate
+    # over the *arbitrary* set of field inputs the workshop schema defines.
+    name: str = Form(""),
     db: Session = Depends(get_db),
 ):
     workshop = require_workshop_by_slug(db, slug)
     if workshop.is_expired():
         return _render(request, "workshop_expired.html", workshop=workshop)
-    name = (name or "").strip()
+
+    schema = workshop.form_schema()
+
+    # The display name comes from the canonical 'display_name' field, OR the
+    # first schema field, OR the legacy `name` POST. This makes Phase 4
+    # backwards-compatible with Phase 1-3 join-page submissions.
+    name_field = _display_name_field(schema)
+    name_field_key = name_field.get("key") if name_field else "display_name"
+
+    # We can't easily mix dynamic Form() params with a fixed signature, so
+    # we manually read the whole form body. FastAPI's `Depends` injection
+    # for Form(...) parses the body once into request._form; by using a
+    # hidden Form(...) sentinel below we ensure that has run before this
+    # code reads it. (Sentinel itself is discarded.)
+    form_data = getattr(request, "_form", None)
+    form: dict[str, str] = {}
+    if form_data is not None:
+        try:
+            form = {k: form_data.get(k) for k in form_data.keys()}
+        except Exception:
+            form = {}
+
+    # Accept answers from the dynamic form.
+    answers = _collect_form_answers(schema, form)
+
+    name = ""
+    if name_field_key in answers:
+        name = (answers.get(name_field_key) or "").strip()
     if not name:
-        raise HTTPException(status_code=400, detail="Name is required")
+        legacy = form.get("name")
+        if legacy is not None:
+            name = str(legacy).strip()
+    if not name:
+        for k, v in answers.items():
+            v = (v or "").strip()
+            if v:
+                name = v
+                break
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Display name is required")
     if len(name) > 120:
         name = name[:120]
 
-    participant = Participant(workshop_id=workshop.id, name=name)
+    # Persist the answers as JSON (the captured *inputs* — what they
+    # submitted), and ALSO write the canonical display name into the legacy
+    # participant.name column so dashboards keep working unchanged.
+    participant = Participant(
+        workshop_id=workshop.id,
+        name=name,
+        answers_json=json.dumps(answers) if answers else None,
+    )
     db.add(participant)
     db.commit()
     db.refresh(participant)
@@ -747,4 +1144,122 @@ def participant_poll(
         "leaderboard": leaderboard,
         "help_requests": help_payload,
         "milestones": milestones,
+        # Phase 4: include the form schema so the participant tracker can
+        # surface captured answers if/when we later add a per-participant
+        # view there. (No client-side reliance on this in Phase 4.)
+        "form_schema": getattr(db.query(Workshop).filter(Workshop.id == workshop.id).first(), "form_schema", lambda: [])(),
     }
+
+
+# --- Phase 4: form-template management (admin) ---
+
+
+@app.get("/admin/{admin_token}/form", response_class=HTMLResponse)
+def admin_form_edit(
+    request: Request,
+    admin_token: str,
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    """Edit the form schema for THIS workshop (the snapshot, not the template)."""
+    workshop = require_workshop_by_admin_token(db, admin_token)
+    schema = workshop.form_schema()
+    return _render(
+        request,
+        "admin_form.html",
+        workshop=workshop,
+        form_schema=schema,
+        form_schema_json_str=json.dumps(schema),
+    )
+
+
+@app.post("/admin/{admin_token}/form")
+def admin_form_save(
+    request: Request,
+    admin_token: str,
+    fields_json: str = Form(""),
+    save_as_template: str = Form(""),
+    template_name: str = Form(""),
+    template_id: str = Form(""),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Save the form schema snapshot, optionally (also) save as a new/updated template."""
+    workshop = require_workshop_by_admin_token(db, admin_token)
+    fields = _coerce_fields_json(fields_json)
+    fields = _ensure_display_name_field(fields)
+    if not fields:
+        fields = list(DEFAULT_FORM_SCHEMA)
+    workshop.form_schema_json = json.dumps(fields)
+
+    template_obj: FormTemplate | None = None
+    if save_as_template and template_name.strip():
+        # If template_id was passed, update it; else create a new one.
+        if template_id and template_id.isdigit():
+            template_obj = (
+                db.query(FormTemplate)
+                .filter(FormTemplate.id == int(template_id))
+                .first()
+            )
+            if template_obj is not None:
+                template_obj.name = template_name.strip()[:120]
+                template_obj.fields_json = json.dumps(fields)
+        else:
+            template_obj = FormTemplate(
+                name=template_name.strip()[:120],
+                created_at=_utcnow(),
+                fields_json=json.dumps(fields),
+            )
+            db.add(template_obj)
+            db.flush()
+            workshop.form_template_id = template_obj.id
+
+    db.commit()
+    return RedirectResponse(url=f"/admin/{admin_token}", status_code=303)
+
+
+@app.get("/admin/{admin_token}/form-template", response_class=HTMLResponse)
+def admin_form_template_pick(
+    request: Request,
+    admin_token: str,
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    """Pick a saved template to overwrite THIS workshop's snapshot."""
+    workshop = require_workshop_by_admin_token(db, admin_token)
+    templates_list = (
+        db.query(FormTemplate).order_by(FormTemplate.created_at.desc()).all()
+    )
+    return _render(
+        request,
+        "admin_form_template.html",
+        workshop=workshop,
+        templates_list=templates_list,
+        form_schema=workshop.form_schema(),
+    )
+
+
+@app.post("/admin/{admin_token}/form-template/apply/{tid}")
+def admin_form_template_apply(
+    request: Request,
+    admin_token: str,
+    tid: int,
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Replace the workshop's form-schema snapshot with a deep-copy of the template.
+
+    IMPORTANT: historical workshops that already collected answers are
+    unaffected — only this workshop's JOIN page gets the new fields.
+    """
+    workshop = require_workshop_by_admin_token(db, admin_token)
+    template_obj = (
+        db.query(FormTemplate).filter(FormTemplate.id == tid).first()
+    )
+    if template_obj is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    fresh_fields = deepcopy(template_obj.fields())
+    if not fresh_fields:
+        fresh_fields = list(DEFAULT_FORM_SCHEMA)
+    workshop.form_schema_json = json.dumps(fresh_fields)
+    workshop.form_template_id = template_obj.id
+    db.commit()
+    return RedirectResponse(url=f"/admin/{admin_token}", status_code=303)
+
+
