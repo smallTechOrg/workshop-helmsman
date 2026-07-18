@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Form · {{ workshop.name }}{% endblock %}
+{% block topnav %}
+  <a class="pill" href="/admin/{{ workshop.admin_token }}">← Back to dashboard</a>
+  <a class="pill" href="/admin/{{ workshop.admin_token }}/form-template">Load template</a>
+{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Participant form</h1>
+  <p class="lede">Configure what attendees enter when joining <strong>{{ workshop.name }}</strong>.</p>
+  <p class="muted small">Snapshot is saved with this workshop — editing a saved template later won't change historical snapshots.</p>
+
+  <form method="post" action="/admin/{{ workshop.admin_token }}/form" id="form-editor">
+    <div id="form-fields">
+      {% for f in form_schema %}{% include "_form_field_row.html" %}{% endfor %}
+    </div>
+
+    <div class="form-actions">
+      <button type="button" class="btn btn-secondary" id="add-text">+ Text field</button>
+      <button type="button" class="btn btn-secondary" id="add-dropdown">+ Dropdown field</button>
+    </div>
+
+    <input type="hidden" name="fields_json" id="fields-json" />
+
+    <fieldset class="card-aside mt">
+      <legend>Save as template (optional)</legend>
+      <label class="field">
+        <span>Template name</span>
+        <input name="template_name" placeholder="e.g. AI workshop intake" />
+      </label>
+      <small class="muted">If filled, the field schema above is also stored as a new reusable template.</small>
+    </fieldset>
+
+    <button class="btn btn-primary mt" type="submit">Save form</button>
+  </form>
+</section>
+
+{% raw %}
+<script id="form-row-template" type="text/x-template">
+  <div class="form-row" data-idx="{idx}">
+    <div class="form-row-head">
+      <strong class="row-label-text">Field {n}</strong>
+      <button type="button" class="btn-row-remove" data-action="remove">×</button>
+    </div>
+    <div class="form-row-grid">
+      <label><span>Key</span><input data-bind="key" placeholder="snake_case_key" /></label>
+      <label><span>Label</span><input data-bind="label" placeholder="Display label" /></label>
+      <label><span>Placeholder</span><input data-bind="placeholder" placeholder="(text fields only)" /></label>
+      <label class="chk"><input type="checkbox" data-bind="required" /> Required</label>
+    </div>
+    <div class="form-row-options" data-show="dropdown">
+      <label>
+        <span>Dropdown options (one per line)</span>
+        <textarea data-bind="options" rows="3" placeholder="Option A&#10;Option B"></textarea>
+      </label>
+    </div>
+    <input type="hidden" data-bind="type" value="text" />
+  </div>
+</script>
+{% endraw %}
+<script src="/static/form_editor.js"></script>
+{% endblock %}

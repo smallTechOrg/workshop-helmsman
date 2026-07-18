@@ -6,6 +6,10 @@
   <form method="post" action="/admin/{{ workshop.admin_token }}/clone" style="display:inline">
     <button class="pill" type="submit">Clone workshop</button>
   </form>
+  <form method="post" action="/admin/{{ workshop.admin_token }}/archive" style="display:inline"
+        onsubmit="return confirm('Archive this workshop? Participants will be locked out.')">
+    <button class="pill" type="submit">Archive</button>
+  </form>
 {% endblock %}
 {% block content %}
 <section class="card">
@@ -22,7 +26,10 @@
   <div class="link-row">
     <div>
       <small class="muted">Participant link</small>
-      <code class="big-link" id="participant-link">/w/{{ workshop.participant_slug }}</code>
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <code class="big-link" id="participant-link">/w/{{ workshop.participant_slug }}</code>
+        <button class="btn btn-small" id="copy-btn" type="button">Copy link</button>
+      </div>
     </div>
     <div>
       <small class="muted">Admin link (keep secret)</small>
@@ -37,10 +44,7 @@
     <h2>Stats</h2>
     <div class="stat-row">
       <div><span class="stat-num">{{ participant_count }}</span><span class="stat-label">participants</span></div>
-      <div>
-        <span class="stat-num">{{ help_requests|length }}</span>
-        <span class="stat-label">help flags</span>
-      </div>
+      <div><span class="stat-num">{{ help_requests|length }}</span><span class="stat-label">help flags</span></div>
     </div>
 
     <h3 class="mt">Per-milestone completion</h3>
@@ -59,6 +63,30 @@
         {% endfor %}
       </tbody>
     </table>
+
+    {% if cohort_bar is defined and cohort_bar %}
+      <h3 class="mt">Cohort progress</h3>
+      <div class="stacked-bar-container">
+        {% for seg in cohort_bar.segments %}
+          {% if seg.count > 0 %}
+            <div class="stacked-bar-segment"
+                 style="width:{{ (100 * seg.count / cohort_bar.total)|round|int }}%; background:{{ seg.color }}"
+                 title="{{ seg.label }}: {{ seg.count }} participant(s)"></div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <div class="stacked-bar-legend">
+        {% for seg in cohort_bar.segments %}
+          {% if seg.count > 0 %}
+            <span class="stacked-legend-item">
+              <span class="stacked-legend-swatch" style="background:{{ seg.color }}"></span>
+              {{ seg.label }} ({{ seg.count }})
+            </span>
+          {% endif %}
+        {% endfor %}
+        <span class="muted" style="margin-left:auto">n={{ cohort_bar.total }}</span>
+      </div>
+    {% endif %}
   </div>
 
   <div class="card">
@@ -66,17 +94,30 @@
     {% if help_requests %}
       <ul class="plain-list">
         {% for h in help_requests %}
-          <li class="help-card">
+          <li class="help-card" data-hid="{{ h.id }}">
             <div class="help-meta">
               <strong>{{ h.participant.name }}</strong>
               <small class="muted">· {{ h.created_at.strftime('%H:%M:%S UTC') }}</small>
+              <span class="status-pill status-{{ h.status }}" data-hid="{{ h.id }}">{{ h.status.replace('_', ' ') }}</span>
             </div>
             <div class="help-body">{{ h.message }}</div>
+            <div class="status-controls">
+              <label class="muted small">Change status:</label>
+              {% for s in help_statuses %}
+                <button class="status-btn status-btn-{{ s }} {% if s == h.status %}active{% endif %}"
+                        data-admin="{{ workshop.admin_token }}"
+                        data-hid="{{ h.id }}"
+                        data-status="{{ s }}">{{ s.replace('_', ' ') }}</button>
+              {% endfor %}
+            </div>
           </li>
         {% endfor %}
       </ul>
     {% else %}
       <p class="muted">No one has flagged for help. Nice.</p>
+    {% endif %}
+  {% if has_more_help %}
+      <a class="pill" href="/admin/{{ workshop.admin_token }}?page={{ help_page + 1 }}">Older →</a>
     {% endif %}
   </div>
 </section>
@@ -92,9 +133,13 @@
       </thead>
       <tbody id="participants-tbody">
         {% for r in rows %}
-          <tr>
+          <tr{% if loop.index > 30 %} class="participant-extra hidden" style="display:none"{% endif %}>
             <td>{{ loop.index }}</td>
-            <td><strong>{{ r.participant.name }}</strong></td>
+            <td>
+              <a href="/admin/{{ workshop.admin_token }}/participant/{{ r.participant.id }}">
+                <strong>{{ r.participant.name }}</strong>
+              </a>
+            </td>
             <td><small class="muted">{{ r.participant.joined_at.strftime('%H:%M:%S UTC') }}</small></td>
             <td>
               <div class="bar"><div class="bar-fill" style="width: {{ r.pct }}%"></div></div>
@@ -109,18 +154,51 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if rows|length > 30 %}
+      <button class="btn btn-small mt" id="toggle-participants" type="button">Show remaining {{ rows|length - 30 }}</button>
+    {% endif %}
   {% else %}
     <p class="muted">No one has joined yet. Share the participant link to start.</p>
   {% endif %}
 </section>
 {% endblock %}
 {% block scripts %}
+    <script src="/static/help_status.js"></script>
 <script>
-  // Soft polling on the admin dashboard too, so multi-tab facilitators see live updates.
   (function () {
-    const tbody = document.getElementById('participants-tbody');
-    if (!tbody) return;
-    setInterval(() => location.reload(), 15000);
+    var link = document.getElementById('participant-link');
+    var btn = document.getElementById('copy-btn');
+    if (!link || !btn) return;
+    btn.addEventListener('click', function () {
+      var full = window.location.origin + link.textContent.trim();
+      navigator.clipboard.writeText(full).then(function () {
+        btn.textContent = 'Copied!';
+        setTimeout(function () { btn.textContent = 'Copy link'; }, 2000);
+      }).catch(function () {
+        var range = document.createRange();
+        range.selectNode(link);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+      });
+    });
+  })();
+  // Participant table: show first 30, toggle reveals remaining.
+  (function () {
+    var btn = document.getElementById('toggle-participants');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        var extra = document.querySelectorAll('.participant-extra');
+        var anyShown = Array.prototype.some.call(extra, function (el) { return el.style.display !== 'none'; });
+        if (anyShown) {
+          extra.forEach(function (el) { el.style.display = 'none'; });
+          var total = {{ rows|length }};
+          btn.textContent = 'Show remaining ' + (total - 30);
+        } else {
+          extra.forEach(function (el) { el.style.display = ''; });
+          btn.textContent = 'Show fewer';
+        }
+      });
+    }
   })();
 </script>
 {% endblock %}

@@ -70,7 +70,7 @@ code.url-example {
 }
 .pill:hover { background: var(--accent-soft); text-decoration: none; }
 
-.container { max-width: 1100px; margin: 24px auto; padding: 0 16px 48px; }
+.container { max-width: 100%; margin: 24px auto; padding: 0 1rem 48px; }
 
 .hero { padding: 32px 0 8px; }
 .hero h1 { font-size: 2rem; margin: 0 0 12px; }
@@ -223,10 +223,235 @@ code.url-example {
 .stat-num { font-size: 1.6rem; font-weight: 600; margin-right: 6px; }
 .stat-label { color: var(--text-muted); }
 
+/* Phase 3 — search / filter */
+.filter-bar { display: flex; align-items: center; gap: 12px; margin: 14px 0; }
+.filter-bar input[type="text"] {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  min-width: 220px;
+}
+.filter-bar input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Phase 3 — cohort stacked bar */
+.stacked-bar-container {
+  display: flex;
+  height: 28px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.stacked-bar-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2px;
+  transition: width 0.4s ease;
+}
+.stacked-bar-label {
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  pointer-events: none;
+}
+.stacked-bar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-top: 6px;
+}
+.stacked-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.stacked-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* Phase 3 — pill-archive */
+.pill-archive { color: var(--danger); border-color: var(--danger); }
+.pill-archive:hover { background: rgba(239,106,106,0.15); }
+
+/* Phase 3 — timeline (drill-down page) */
+.timeline { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0; }
+.timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.timeline-item:last-child { border-bottom: none; }
+.timeline-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.timeline-icon-done { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
+.timeline-icon-help { background: rgba(214,140,68,0.18); color: var(--expired); border: 1px solid var(--expired); }
+.timeline-body { display: flex; flex-direction: column; gap: 3px; }
+
 .footer {
   text-align: center;
   color: var(--text-muted);
   padding: 24px;
   border-top: 1px solid var(--border);
   margin-top: 32px;
+}
+
+
+/* Phase 4 — form field editor + templates */
+.form-row {
+  border: 1px solid var(--border, #2a3142);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+  background: var(--panel, #131722);
+}
+.form-row-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 0.5rem;
+}
+.btn-row-remove {
+  background: transparent; border: 0; color: #ef6a6a;
+  cursor: pointer; font-size: 1.2rem; line-height: 1;
+}
+.form-row-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.5rem;
+}
+.form-row-grid label { display: flex; flex-direction: column; font-size: 0.85rem; }
+.form-row-grid label.chk { flex-direction: row; align-items: center; gap: 0.4rem; }
+.form-row-options { margin-top: 0.5rem; }
+.form-row-options textarea { width: 100%; font-family: ui-monospace, monospace; }
+.form-actions { display: flex; gap: 0.5rem; margin: 1rem 0; flex-wrap: wrap; }
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+.template-card {
+  border: 1px solid var(--border, #2a3142);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--panel, #131722);
+}
+.template-card h3 { margin: 0 0 0.25rem 0; }
+.template-fields {
+  background: rgba(0,0,0,0.25);
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  margin: 0.5rem 0;
+  white-space: pre-wrap;
+}
+.template-card-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.4rem 1rem; margin: 0; }
+dl.kv dt { font-weight: 600; color: var(--muted, #8a93a6); }
+dl.kv dd { margin: 0; word-break: break-word; }
+
+.card-aside {
+  border: 1px dashed var(--border, #2a3142);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+}
+.warning { color: #e4c44a; }
+.required { color: #ef6a6a; font-style: normal; }
+
+@media (max-width: 600px) {
+  .template-grid { grid-template-columns: 1fr; }
+  .form-row-grid { grid-template-columns: 1fr; }
+}
+
+
+/* Phase 6 — help status pills + buttons + LLM confirmation */
+.status-pill {
+  display: inline-block;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+.status-pill.status-open     { background: rgba(228, 196, 74, 0.15); color: #e4c44a; border-color: rgba(228, 196, 74, 0.4); }
+.status-pill.status-on_hold  { background: rgba(214, 140, 68, 0.15); color: #d68c44; border-color: rgba(214, 140, 68, 0.4); }
+.status-pill.status-resolved { background: rgba(68, 211, 154, 0.15); color: #44d39a; border-color: rgba(68, 211, 154, 0.4); }
+
+.status-controls {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
+  margin-top: 0.4rem;
+}
+.status-controls label { font-size: 0.78rem; }
+.status-btn {
+  background: transparent;
+  border: 1px solid var(--border, #2a3142);
+  color: inherit;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+.status-btn:hover { border-color: rgba(122, 162, 255, 0.6); }
+.status-btn.active.status-btn-open     { background: rgba(228, 196, 74, 0.2); border-color: rgba(228, 196, 74, 0.7); color: #e4c44a; }
+.status-btn.active.status-btn-on_hold  { background: rgba(214, 140, 68, 0.2); border-color: rgba(214, 140, 68, 0.7); color: #d68c44; }
+.status-btn.active.status-btn-resolved { background: rgba(68, 211, 154, 0.2); border-color: rgba(68, 211, 154, 0.7); color: #44d39a; }
+
+.llm-suggestion {
+  border-left: 3px solid #7aa2ff;
+  background: rgba(122, 162, 255, 0.08);
+  padding: 0.7rem 1rem;
+  margin: 0.5rem 0 1rem 0;
+  border-radius: 4px;
+  font-size: 0.95rem;
+}
+.help-confirm h3 { margin-top: 0; }
+.row-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+
+@media (max-width: 600px) {
+  /* Phase 7 — mobile-first layout */
+  .topbar { flex-direction: column; gap: 0.4rem; }
+  .grid.two { grid-template-columns: 1fr; }
+  .link-row { grid-template-columns: 1fr; }
+  .status-controls { flex-direction: column; align-items: flex-start; }
+  .status-btn { width: 100%; }
+  table.table { font-size: 0.8rem; overflow-x: auto; display: block; }
+  .stacked-bar-container { height: 1.2rem; }
+  /* milestone mark-complete button full-width on mobile */
+  .milestone { flex-wrap: wrap; }
+  .milestone form { width: 100%; }
+  .milestone form .btn { width: 100%; }
+  /* leaderboard rows don't overflow */
+  .leaderboard-row { flex-wrap: wrap; word-break: break-word; }
+  .leaderboard-progress .bar { width: 80px; }
+}
+
+/* Phase 7 — touch targets (iOS min 44px) */
+button, .btn, .pill, .status-btn, input[type="submit"] {
+  min-height: 44px;
 }

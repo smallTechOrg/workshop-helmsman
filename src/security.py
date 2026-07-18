@@ -48,8 +48,10 @@ def require_workshop_by_admin_token(db: Session, token: str) -> Workshop:
 
 def require_workshop_by_slug(db: Session, slug: str) -> Workshop:
     w = find_workshop_by_slug(db, slug)
-    if w is None or w.archived:
+    if w is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workshop not found")
+    if w.archived:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Workshop has been archived")
     return w
 
 

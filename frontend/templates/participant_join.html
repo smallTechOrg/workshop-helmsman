@@ -3,14 +3,34 @@
 {% block content %}
 <section class="card narrow">
   <h1>{{ workshop.name }}</h1>
-  <p class="lede">Enter your name to join. No account, no email — just a nickname the facilitator can recognise.</p>
+  <p class="lede">A few quick details, then we'll drop you on the tracker. No account needed.</p>
 
   <form method="post" action="/w/{{ workshop.participant_slug }}" class="stack">
-    <label>
-      <span>Display name</span>
-      <input type="text" name="name" required maxlength="120"
-             placeholder="e.g. Priya, anu from Delhi, J. Smith" />
-    </label>
+    {% for field in form_schema %}
+      {% set key = field.key %}
+      {% set type = field.type %}
+      {% set label = field.label or key %}
+      {% set required = field.required %}
+      <label>
+        <span>
+          {{ label }}
+          {% if required %}<em class="required">*</em>{% endif %}
+        </span>
+        {% if type == 'dropdown' %}
+          <select name="{{ key }}" {% if required %}required{% endif %}>
+            <option value="">— select —</option>
+            {% for opt in field.options or [] %}
+              <option value="{{ opt }}">{{ opt }}</option>
+            {% endfor %}
+          </select>
+        {% else %}
+          <input type="text" name="{{ key }}"
+                 {% if required %}required{% endif %}
+                 maxlength="200"
+                 placeholder="{{ field.placeholder or '' }}" />
+        {% endif %}
+      </label>
+    {% endfor %}
     <button class="btn btn-primary" type="submit">Join workshop</button>
   </form>
 </section>

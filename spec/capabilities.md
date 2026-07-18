@@ -28,15 +28,24 @@ end-to-end before the next phase begins.
   - `POST /admin/<token>/clone` → returns `text/plain` body "Coming in Phase 2".
   - `GET /admin/<token>/edit` → returns `text/plain` body "Coming in Phase 2".
 
-## Phase 2
+## Phase 2 — Workshop config + export (this build)
 
-- Edit milestones post-creation (replace milestone_config JSON via the edit page).
-- Real CSV export of the full audit (workshop meta, participants, completions,
-  help requests).
-- Clone-this-workshop wired up: copies milestones + expiry offset and issues fresh
-  tokens; redirects to the new admin dashboard.
-- A "share this URL" affordance on the dashboard (short-link friendly slug displayed
-  prominently, copy-to-clipboard button).
+- ✅ Edit milestones post-creation (`GET/POST /admin/<token>/edit`): form
+  pre-filled with current name, milestone list (`title: description` textarea),
+  and TTL in hours. POST writes `workshop.name`, `workshop.milestone_config`
+  (JSON), and `workshop.expires_at`. Existing `milestone_completion.milestone_title`
+  rows are preserved unchanged.
+- ✅ Real CSV export (`GET /admin/<token>/export.csv`): `Content-Type: text/csv`,
+  `Content-Disposition: attachment; filename="workshop-<name>-<ts>.csv"`. Columns:
+  `participant_name, joined_at, milestone_title, completed_at, help_message,
+  help_created_at`. Left-join all four tables. Header row always present.
+  Participants with no completions produce a row with only name/timestamp.
+- ✅ Clone-this-workshop (`POST /admin/<token>/clone`): copies `milestone_config`,
+  issues fresh `admin_token` + `participant_slug`, sets TTL to 8 h from now.
+  Redirects 303 to the new admin dashboard.
+- ✅ Copy-to-clipboard on admin dashboard: participant URL shown with a
+  "Copy link" button; writes full URL to clipboard and gives 2 s "Copied!"
+  feedback. Graceful fallback to text selection.
 
 ## Phase 3
 

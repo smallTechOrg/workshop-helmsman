@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Edit template · {{ template_obj.name }}{% endblock %}
+{% block topnav %}
+  <a class="pill" href="/admin/templates">← All templates</a>
+{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Template: {{ template_obj.name }}</h1>
+  <p class="muted small">Edited here changes this template for FUTURE workshops. Existing workshops that already loaded it keep their frozen snapshot.</p>
+
+  <form method="post" action="/admin/templates/{{ template_obj.id }}" id="form-editor">
+    <label class="field">
+      <span>Template name</span>
+      <input name="name" required maxlength="120" value="{{ template_obj.name }}" />
+    </label>
+
+    <h3 class="mt">Fields</h3>
+    <div id="form-fields">
+{% for f in form_schema %}{% include "_form_field_row.html" %}{% endfor %}
+    </div>
+
+    <div class="form-actions">
+      <button type="button" class="btn btn-secondary" id="add-text">+ Text field</button>
+      <button type="button" class="btn btn-secondary" id="add-dropdown">+ Dropdown field</button>
+    </div>
+
+    <input type="hidden" name="fields_json" id="fields-json" />
+    <button class="btn btn-primary mt" type="submit">Save template</button>
+  </form>
+</section>
+<script src="/static/form_editor.js"></script>
+{% endblock %}

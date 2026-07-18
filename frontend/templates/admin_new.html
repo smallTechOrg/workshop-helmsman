@@ -1,33 +1,80 @@
 {% extends "base.html" %}
-{% block title %}Create a workshop · Helmsman{% endblock %}
+{% block title %}New workshop{% endblock %}
 {% block content %}
-<section class="card">
-  <h1>Create a workshop</h1>
-  <p class="lede">Define the milestones, get a participant link and a separate admin link. Both are reusable until the workshop expires.</p>
+<section class="card narrow">
+  <h1>Create a new workshop</h1>
 
-  <form method="post" action="/admin/new" class="stack">
-    <label>
+  <form method="post" action="/admin/new">
+    <label class="field">
       <span>Workshop name</span>
-      <input type="text" name="name" required maxlength="200"
-             placeholder="e.g. AI Agents 101 — July cohort" />
+      <input name="name" required maxlength="120" placeholder="e.g. Intro to AI · 18 Jul" />
     </label>
 
-    <label>
-      <span>Milestones — one per line, format <code>title: short description</code></span>
-      <textarea name="milestones" rows="9" required>{{ default_milestones }}</textarea>
-      <small class="muted">If you leave this blank, four default steps (Setup → API Key → First Build → Done) are used.</small>
+    <details class="advanced" open>
+      <summary>Agenda templates</summary>
+      <p class="muted small">Pick a template to pre-fill milestones, or write your own below.</p>
+      <select name="agenda_template_id" id="agenda-template-select">
+        <option value="">— Custom milestones —</option>
+        {% for tpl in agenda_templates %}
+        <option value="{{ tpl.id }}" data-milestones='{{ tpl.milestones_json }}'>{{ tpl.name }}</option>
+        {% endfor %}
+      </select>
+    </details>
+
+    <label class="field">
+      <span>Milestones (one per line — "Title: description")</span>
+      <textarea name="milestones" rows="8" required>{{ request.query_params.get('milestones', '') }}</textarea>
     </label>
 
-    <label>
-      <span>Participant link expiry (hours)</span>
-      <input type="number" name="ttl_hours" min="1" max="168" value="{{ default_ttl }}" />
-      <small class="muted">The admin link isn't affected by expiry — you can always export & archive later.</small>
-    </label>
+    <fieldset class="card-aside">
+      <legend>Participant form</legend>
+      <p class="muted small">What information do you collect from each attendee?</p>
 
-    <div class="cta-row">
-      <button class="btn btn-primary" type="submit">Create workshop</button>
-      <a class="btn" href="/">Cancel</a>
-    </div>
+      <div id="form-fields">
+        <div class="form-row">
+          <strong>default</strong>
+          <span class="muted">display_name (text, required)</span>
+        </div>
+      </div>
+
+      <input type="hidden" name="fields_json" id="fields-json"
+             value='[{"key":"display_name","type":"text","label":"Display name","placeholder":"Your name","required":true}]' />
+
+      <p class="muted small">Phase 4 default form is just a display_name field. Full field editor lives on the workshop's form page after creation.</p>
+
+      <label class="checkbox">
+        <input type="checkbox" name="save_as_template" value="1" />
+        Save this form as a template
+      </label>
+
+      <label class="field">
+        <span>Template name (if saving)</span>
+        <input name="template_name" placeholder="Leave blank to auto-name" />
+      </label>
+    </fieldset>
+
+    <button class="btn btn-primary" type="submit">Create workshop</button>
   </form>
 </section>
+
+<script>
+  // When an agenda template is selected, pre-fill the milestones textarea.
+  document.getElementById('agenda-template-select').addEventListener('change', function () {
+    var select = this;
+    var textarea = document.querySelector('textarea[name="milestones"]');
+    if (!textarea) return;
+    var opt = select.options[select.selectedIndex];
+    if (!opt.value) return;
+    // milestones from template are embedded in data-attributes on the option
+    var milestonesJson = opt.getAttribute('data-milestones');
+    if (milestonesJson) {
+      try {
+        var milestones = JSON.parse(milestonesJson);
+        textarea.value = milestones.map(function (m) {
+          return (m.title + (m.description ? ': ' + m.description : ''));
+        }).join('\n');
+      } catch (e) {}
+    }
+  });
+</script>
 {% endblock %}
