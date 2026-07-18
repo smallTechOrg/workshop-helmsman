@@ -1,62 +1,43 @@
-# Capabilities
+# Capabilities — Workshop Helmsman (v0.1)
 
-Phased list. Each phase ships behind a Gate command that proves the slice works
-end-to-end before the next phase begins.
+Phased list. Each phase ships behind a Gate that proves the slice works end-to-end.
 
-## Phase 1 — Single-workshop happy path (this build)
+## Phase 1 — Core Path ✅
+**Goal:** Facilitator creates workshop from template → shares participant link → participants join and fill form → facilitator watches live dashboard → participants complete milestones → facilitator exports CSV.
 
-- Landing page with two entry points: "Facilitator: create a new workshop" and
-  "Workshop admin: enter admin token".
-- `POST /admin/new` creates a workshop, stores `admin_token` + `participant_slug`,
-  redirects the facilitator to the dashboard.
-- Admin dashboard is **read-only** in this phase but already shows:
-  - participant grid (name, % complete, last activity, help-needed badge),
-  - live help-requests panel,
-  - workshop metadata (name, expiry, milestones).
-- A seeded **DEMO** workshop is created on first boot so a tester can click straight in.
-- Participants join via `/w/<participant_slug>`, are prompted for a name on first visit,
-  then land on their tracker.
-- Participants can complete milestones and submit help requests.
-- Live refresh: `/w/<participant_slug>/data?since=<ts>` returns a JSON snapshot used by
-  the tracker for leaderboard updates and by the admin dashboard for participant
-  refresh. Polled every 3s.
-- Real expiry enforcement: if `expires_at < now()` and `archive_after_expiry` is on, the
-  participant page renders a friendly "this workshop has ended" page. The admin route
-  always works until a future archive feature deletes the row.
-- **Clearly-labelled stubs** (not silent failures):
-  - `GET /admin/<token>/export.csv` → returns `text/plain` body "Coming in Phase 2".
-  - `POST /admin/<token>/clone` → returns `text/plain` body "Coming in Phase 2".
-  - `GET /admin/<token>/edit` → returns `text/plain` body "Coming in Phase 2".
+### Phase 1 — UX Polish (this improvement cycle) ✅
+**Goal:** Polish the Phase 1 happy path with modern visual design, better mobile UX, instant validation, and facilitator controls that feel real-time.
 
-## Phase 2 — Workshop config + export (this build)
+| Capability | Detail |
+|---|---|
+| **Facilitator dashboard polish** | Cards with elevation, status pills (live/expired/archived), progress bars with smooth animations, milestone chips, cohort stacked bar with legend, per-milestone stats, responsive grid |
+| **Participant join form** | Cleaner card layout, workshop name prominent, instant inline validation (required fields, dropdown required selection), better mobile input sizing, touch-friendly targets (44px min) |
+| **Participant tracker** | Milestone checklist with check animations (CSS transition), broadcast announcement banner (dismissible), "My answers" panel (read-only form responses), help request 2-step preview (LLM suggestion → confirm), smooth progress bar animation |
+| **CSS: Modern visual system** | Design tokens (spacing scale --space-1..8, color tokens, elevation shadows, border-radius scale), fluid typography with clamp(), responsive breakpoints (480, 720, 1024), elevation system (surface/raised/overlay), focus-visible states, reduced-motion support |
+| **JS: Smooth polling & interactions** | Single poll loop with requestAnimationFrame scheduling, broadcast message handling (banner + auto-dismiss), milestone advance controls (facilitator: "Advance all to next"), optimistic UI for milestone complete, help request 2-step flow in JS |
 
-- ✅ Edit milestones post-creation (`GET/POST /admin/<token>/edit`): form
-  pre-filled with current name, milestone list (`title: description` textarea),
-  and TTL in hours. POST writes `workshop.name`, `workshop.milestone_config`
-  (JSON), and `workshop.expires_at`. Existing `milestone_completion.milestone_title`
-  rows are preserved unchanged.
-- ✅ Real CSV export (`GET /admin/<token>/export.csv`): `Content-Type: text/csv`,
-  `Content-Disposition: attachment; filename="workshop-<name>-<ts>.csv"`. Columns:
-  `participant_name, joined_at, milestone_title, completed_at, help_message,
-  help_created_at`. Left-join all four tables. Header row always present.
-  Participants with no completions produce a row with only name/timestamp.
-- ✅ Clone-this-workshop (`POST /admin/<token>/clone`): copies `milestone_config`,
-  issues fresh `admin_token` + `participant_slug`, sets TTL to 8 h from now.
-  Redirects 303 to the new admin dashboard.
-- ✅ Copy-to-clipboard on admin dashboard: participant URL shown with a
-  "Copy link" button; writes full URL to clipboard and gives 2 s "Copied!"
-  feedback. Graceful fallback to text selection.
+### Clearly-labelled stubs (Phase 2+)
+- Multi-workshop concurrent sessions (dashboard switcher)
+- Breakout rooms / multiple facilitators per session
+- Email/Slack/webhook notifications on help flags
+- Custom domains per workshop (CNAME mapping)
+- Participant-to-participant messaging (chat)
+- Webhooks / REST API for external integrations
 
-## Phase 3
+## Phase 2 — Template Library & Multi-Session (planned)
+- `/admin/templates` — CRUD for agenda templates + form templates
+- Workshop cloning with template reference preserved
+- `/workshops` archive page with search/filter, cohort comparison
+- Per-participant drill-down page (`/admin/<token>/participant/<pid>`)
 
-- Multi-workshop archive view on the landing page (list of past + active workshops).
-- Per-cohort grouping / filtering on the archive view.
-- Finer-grained admin permissions (per-workshop token rotation, archival, restore).
-- UI polish, tests, CI.
+## Phase 3 — AI Assist & Polish (planned)
+- LLM suggestion on help flags (OpenRouter/Gemini, optional key)
+- Facilitator "help tips" (FAQ) injected into LLM context
+- Mobile-first participant tracker polish
+- Accessibility audit (WCAG AA)
 
-## Always-on cross-cutting concerns (any phase)
-
-- Platform-agnostic URLs.
-- Mobile-responsive CSS (grid/flex + viewport meta).
-- Health probe at `/healthz` returning JSON.
-- No secrets required to boot (`.env.example` is intentionally empty).
+## Phase 4 — Scale & Ops (planned)
+- 100+ participant load testing, query optimization
+- PostgreSQL production config, migrations
+- Docker Compose + systemd unit + health checks
+- Structured logging, metrics endpoint
