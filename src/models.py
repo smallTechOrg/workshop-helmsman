@@ -147,6 +147,15 @@ class Workshop(Base):
         Text, nullable=False, default=lambda: __import__("json").dumps(DEFAULT_FORM_SCHEMA)
     )
 
+    # Phase 6: facilitator QA / FAQ tips injected into the LLM prompt when a
+    # participant raises a help flag. Stored as a free-form text block (one
+    # tip per line, optional `topic: tip` format). Empty string == unused.
+    help_tips_json: Mapped[str | None] = mapped_column(Text, nullable=True, default="")
+
+    def help_tips(self) -> str:
+        """Return the FA Q-tips text block (empty string if unset)."""
+        return self.help_tips_json or ""
+
     form_template: Mapped["FormTemplate | None"] = relationship("FormTemplate")
     participants: Mapped[list["Participant"]] = relationship(
         back_populates="workshop",
@@ -251,4 +260,14 @@ class HelpRequest(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
+    # Phase 6: lifecycle status. Default 'open' (= new, awaiting facilitator).
+    # 'on_hold' = facilitator paused it (waiting on participant, escalated).
+    # 'resolved' = handled.
+    status: Mapped[str] = mapped_column(String(16), default="open", nullable=False)
+
     participant: Mapped["Participant"] = relationship(back_populates="help_requests")
+
+
+# Phase 6: the three valid HelpRequest.status values. Validated centrally so
+# route handlers and templates share one source of truth.
+HELP_STATUSES = ("open", "on_hold", "resolved")

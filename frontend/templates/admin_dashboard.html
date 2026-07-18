@@ -94,12 +94,22 @@
     {% if help_requests %}
       <ul class="plain-list">
         {% for h in help_requests %}
-          <li class="help-card">
+          <li class="help-card" data-hid="{{ h.id }}">
             <div class="help-meta">
               <strong>{{ h.participant.name }}</strong>
               <small class="muted">· {{ h.created_at.strftime('%H:%M:%S UTC') }}</small>
+              <span class="status-pill status-{{ h.status }}" data-hid="{{ h.id }}">{{ h.status.replace('_', ' ') }}</span>
             </div>
             <div class="help-body">{{ h.message }}</div>
+            <div class="status-controls">
+              <label class="muted small">Change status:</label>
+              {% for s in help_statuses %}
+                <button class="status-btn status-btn-{{ s }} {% if s == h.status %}active{% endif %}"
+                        data-admin="{{ workshop.admin_token }}"
+                        data-hid="{{ h.id }}"
+                        data-status="{{ s }}">{{ s.replace('_', ' ') }}</button>
+              {% endfor %}
+            </div>
           </li>
         {% endfor %}
       </ul>
@@ -147,6 +157,7 @@
 </section>
 {% endblock %}
 {% block scripts %}
+    <script src="/static/help_status.js"></script>
 <script>
   (function () {
     var link = document.getElementById('participant-link');

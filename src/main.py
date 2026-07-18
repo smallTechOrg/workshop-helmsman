@@ -1,17 +1,20 @@
-"""FastAPI application: all routes for Workshop Helmsman (Phases 1-4)."""
+"""FastAPI application: all routes for Workshop Helmsman (Phases 1-6)."""
 
 from __future__ import annotations
 
 import csv
 import io
 import json
+import logging
 import os
 import re
+import urllib.error
+import urllib.request
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
+from fastapi import Body, Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
@@ -27,6 +30,7 @@ from .db import get_db, init_db, session_scope
 from .models import (
     DEFAULT_AGENDA_TEMPLATES,
     DEFAULT_FORM_SCHEMA,
+    HELP_STATUSES,
     AgendaTemplate,
     FormTemplate,
     HelpRequest,
@@ -44,6 +48,8 @@ from .security import (
     require_workshop_by_admin_token,
     require_workshop_by_slug,
 )
+
+log = logging.getLogger("helmsman")
 
 # --- Paths & app bootstrap ---
 
@@ -85,6 +91,185 @@ def _seed_agenda_templates() -> None:
                 milestones_json=json.dumps(tpl["milestones"]),
             )
             db.add(at)
+
+
+# --- Phase 6: .env loader + OpenRouter LLM helper ---
+
+# Tiny .env loader — we deliberately don't add python-dotenv to keep the
+# dependency footprint flat. Reads KEY=VALUE lines from ./.env (next to the
+# repo root) into os.environ ONLY where the key isn't already present.
+# Existing shell exports always win.
+def _load_dotenv_once() -> None:
+    if getattr(_load_dotenv_once, "_done", False):
+        return
+    _load_dotenv_once._done = True  # type: ignore[attr-defined]
+    env_path = HERE / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for raw in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            if not key:
+                continue
+            # Strip optional surrounding quotes on the value.
+            value = value.strip()
+            if (value.startswith('"') and value.endswith('"')) or (
+                value.startswith("'") and value.endswith("'")
+            ):
+                value = value[1:-1]
+            # Never overwrite an explicit shell export.
+            os.environ.setdefault(key, value)
+    except Exception as exc:
+        log.warning("could not read %s: %s", env_path, exc)
+
+
+_load_dotenv_once()
+
+
+# All values below are read lazily so tests / shells can override after import.
+def _openrouter_key() -> str | None:
+    """Read OPENROUTER_API_KEY from env, return None if missing/empty."""
+    key = os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        return None
+    key = key.strip()
+    if not key or key.startswith("sk-or-..."):
+        # Treat placeholder/template values as 'not configured'.
+        return None
+    return key
+
+
+def _llm_resolve(
+    message: str,
+    milestones: list[dict],
+    help_tips: str,
+) -> str | None:
+    """Ask OpenRouter for a short, actionable suggestion for a help flag.
+
+    Returns the suggestion string (one or two short paragraphs), or None
+    if the API isn't configured, the network call fails, or the response
+    is empty. NEVER raises — Phase 6 callers must always have a graceful
+    fallback (no LLM → plain "send this?" confirmation).
+
+    Uses urllib.request + stdlib json — no extra client deps.
+    Falls back from nvidia/llama-3.3-nemotron-super-49b-v1 to
+    openai/gpt-4o-mini if the primary model errors.
+    """
+    if not message or not message.strip():
+        return None
+    api_key = _openrouter_key()
+    if not api_key:
+        return None
+
+    # Build a concise context block.
+    ctx_lines: list[str] = []
+    if milestones:
+        ms = ", ".join((m.get("title") or "").strip() for m in milestones if (m.get("title") or "").strip())
+        if ms:
+            ctx_lines.append("Workshop milestones: " + ms + ".")
+    if help_tips and help_tips.strip():
+        ctx_lines.append("Facilitator tips:\n" + help_tips.strip())
+
+    context = "\n\n".join(ctx_lines) or "(no extra context)"
+    system_prompt = (
+        "You are a workshop help-desk assistant. A participant just typed a "
+        "short message describing what's blocking them. Reply with ONE short "
+        "paragraph (2-4 sentences) of the most likely fix OR next step they "
+        "should try. Be concrete and specific. If their question is about a "
+        "specific tool/step not covered by the milestones or tips, give your "
+        "best guess based on common workshop gotchas. Do NOT ask follow-up "
+        "questions. Do NOT apologize. Just give the next thing to try."
+    )
+    user_prompt = (
+        f"Context:\n{context}\n\n"
+        f"Participant's help request:\n{message.strip()[:1500]}\n\n"
+        "Reply with the suggestion only."
+    )
+
+    primary = os.environ.get(
+        "OPENROUTER_PRIMARY_MODEL", "nvidia/llama-3.3-nemotron-super-49b-v1"
+    )
+    fallback = os.environ.get("OPENROUTER_FALLBACK_MODEL", "openai/gpt-4o-mini")
+
+    for model in (primary, fallback):
+        suggestion = _llm_call_openrouter(api_key, model, system_prompt, user_prompt)
+        if suggestion:
+            return suggestion
+        # If the primary returned None because of an error AND it's not the
+        # last attempt, the loop moves on to the fallback. If we got a real
+        # empty-string completion on the primary, still try fallback — feels
+        # safer than surfacing nothing.
+    return None
+
+
+def _llm_call_openrouter(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    timeout: float = 6.0,
+) -> str | None:
+    """Single OpenRouter /chat/completions call.
+
+    Returns the first choice's message content stripped, or None on any
+    failure. Network errors, non-2xx responses, JSON parsing errors, and
+    empty completions are all logged at warning/info and return None.
+    """
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": 220,
+        "temperature": 0.4,
+        "stream": False,
+    }
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Authorization": "Bearer " + api_key,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:8001",
+            "X-Title": "WorkshopHelmsman",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            raw = resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as exc:
+        log.warning("OpenRouter call failed for model=%s: %s", model, exc)
+        return None
+    except Exception as exc:  # belt-and-braces; never crash the request
+        log.warning("OpenRouter unexpected error: %s", exc)
+        return None
+
+    try:
+        data = json.loads(raw)
+    except Exception as exc:
+        log.warning("OpenRouter returned non-JSON for model=%s: %s", model, exc)
+        return None
+
+    try:
+        choices = data.get("choices") or []
+        if not choices:
+            return None
+        msg = choices[0].get("message") or {}
+        text = (msg.get("content") or "").strip()
+        return text or None
+    except Exception as exc:
+        log.warning("OpenRouter response shape unexpected for model=%s: %s", model, exc)
+        return None
 
 
 def _parse_milestones(raw: str) -> list[dict]:
@@ -600,6 +785,7 @@ def admin_dashboard(
         help_requests=help_requests,
         participant_count=len(participants),
         cohort_bar=cohort_bar,
+        help_statuses=list(HELP_STATUSES),
     )
 
 
@@ -641,6 +827,7 @@ def admin_edit_form(
         form_template_id=workshop.form_template_id,
         templates_list=templates_list,
         agenda_templates=agenda_templates,
+        help_tips_text=workshop.help_tips(),
     )
 
 
@@ -653,6 +840,7 @@ def admin_edit_save(
     ttl_hours: int = Form(8),
     fields_json: str = Form(""),
     agenda_template_id: str = Form(""),
+    help_tips_text: str = Form(""),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     workshop = require_workshop_by_admin_token(db, admin_token)
@@ -688,6 +876,8 @@ def admin_edit_save(
     if not fields:
         fields = list(DEFAULT_FORM_SCHEMA)
     workshop.form_schema_json = json.dumps(fields)
+    # Save Phase 6 help tips.
+    workshop.help_tips_json = (help_tips_text or "").strip()
     # NOTE: editing a workshop does NOT rewrite form_template_id. The template
     # is a starting point; the snapshot is what the join page uses.
     db.commit()
@@ -1105,6 +1295,9 @@ def participant_me(
         completed_ids=completed_ids,
         leaderboard=leaderboard,
         latest_help=help_recent,
+        help_statuses=list(HELP_STATUSES),
+        pending_message=None,
+        pending_suggestion=None,
     )
 
 
@@ -1143,18 +1336,163 @@ def participant_help(
     request: Request,
     slug: str,
     message: str = Form(""),
+    step: str = Form("preview"),
+    llm_suggestion: str = Form(""),
     db: Session = Depends(get_db),
 ):
+    """Two-step help-flag flow (Phase 6).
+
+    Step 1 — preview (default):
+        Participant typed their message and hit Send. We try to draft an
+        LLM suggestion via OpenRouter. We render `participant_help_confirm.html`
+        with:
+          - the participant's original message (in a textarea, editable)
+          - the LLM suggestion (if any) so they can fold it in
+          - "Send it" / "Edit my message" buttons
+
+    If the LLM call failed or isn't configured, we skip the suggestion and
+    just show a plain "Send this? Yes / Edit" confirmation. Same UX either
+    way — never blocks on the LLM.
+
+    Step 2 — confirm (form posts back with step=confirm):
+        Saves the edited message to a HelpRequest and redirects to the
+        tracker (the regular /w/<slug>/me page).
+    """
     workshop, participant = _resolve_participant(request, db, slug)
     message = (message or "").strip()
+    if len(message) > 2000:
+        message = message[:2000]
+
+    if step == "commit":
+        # Step 2 — persist the (possibly edited) help request.
+        if message:
+            req = HelpRequest(
+                participant_id=participant.id,
+                message=message,
+                status="open",
+            )
+            db.add(req)
+            db.commit()
+        return RedirectResponse(url=f"/w/{slug}/me", status_code=303)
+
+    # Step 1 — preview. Try the LLM, but never block the user if it fails.
+    suggestion: str | None = None
     if message:
-        # Cap to keep DB tidy.
-        if len(message) > 2000:
-            message = message[:2000]
-        req = HelpRequest(participant_id=participant.id, message=message)
-        db.add(req)
-        db.commit()
-    return RedirectResponse(url=f"/w/{slug}/me", status_code=303)
+        try:
+            suggestion = _llm_resolve(
+                message,
+                workshop.milestones(),
+                workshop.help_tips(),
+            )
+        except Exception as exc:  # belt-and-braces — _llm_resolve never raises
+            log.warning("LLM resolve raised: %s", exc)
+            suggestion = None
+    # Step 1 — preview. Render the tracker page with the suggestion inline.
+    # Re-use the same data the GET /w/<slug>/me handler builds, scoped to
+    # this participant (not "latest across the workshop").
+    milestones = workshop.milestones()
+    completed_ids_map: dict[str, datetime] = {
+        c.milestone_id: c.completed_at for c in participant.completions
+    }
+    all_participants = (
+        db.query(Participant)
+        .filter(Participant.workshop_id == workshop.id)
+        .order_by(Participant.joined_at.asc())
+        .all()
+    )
+    leaderboard = []
+    for p in all_participants:
+        done = {c.milestone_id for c in p.completions}
+        leaderboard.append({
+            "id": p.id,
+            "name": p.name,
+            "joined_at": p.joined_at.isoformat(),
+            "completed_count": len(done),
+            "total": len(milestones),
+            "pct": int(round(100 * len(done) / max(len(milestones), 1))),
+            "is_me": p.id == participant.id,
+        })
+    my_help = (
+        db.query(HelpRequest)
+        .filter(HelpRequest.participant_id == participant.id)
+        .order_by(desc(HelpRequest.created_at))
+        .limit(20)
+        .all()
+    )
+    return _render(
+        request,
+        "participant_tracker.html",
+        workshop=workshop,
+        participant=participant,
+        milestones=milestones,
+        completed_ids=completed_ids_map,
+        latest_help=my_help,
+        leaderboard=leaderboard,
+        help_statuses=list(HELP_STATUSES),
+        pending_message=message,
+        pending_suggestion=(suggestion or "").strip(),
+    )
+
+
+# --- Phase 6: status-change routes (participant + admin) ---
+
+
+def _normalize_status(raw: str | None) -> str:
+    s = (raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if s not in HELP_STATUSES:
+        # Be conservative: unknown values fall back to 'open' rather than 400,
+        # so a stale client never locks a help request into a bad state.
+        return "open"
+    return s
+
+
+@app.patch("/w/{slug}/me/help/{hid}/status")
+def participant_help_status(
+    request: Request,
+    slug: str,
+    hid: int,
+    payload: dict = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+):
+    """Participant-owned status update. JSON body: {status: 'open'|...}."""
+    workshop, participant = _resolve_participant(request, db, slug)
+    req = (
+        db.query(HelpRequest)
+        .filter(
+            HelpRequest.id == hid,
+            HelpRequest.participant_id == participant.id,
+        )
+        .first()
+    )
+    if req is None:
+        raise HTTPException(status_code=404, detail="Help request not found")
+    new_status = _normalize_status((payload or {}).get("status"))
+    req.status = new_status
+    db.commit()
+    return {"ok": True, "id": req.id, "status": req.status}
+
+
+@app.patch("/admin/{admin_token}/help/{hid}/status")
+def admin_help_status(
+    admin_token: str,
+    hid: int,
+    payload: dict = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+):
+    """Admin can change any help-request status in this workshop."""
+    workshop = require_workshop_by_admin_token(db, admin_token)
+    req = (
+        db.query(HelpRequest)
+        .join(Participant, HelpRequest.participant_id == Participant.id)
+        .filter(HelpRequest.id == hid, Participant.workshop_id == workshop.id)
+        .first()
+    )
+    if req is None:
+        raise HTTPException(status_code=404, detail="Help request not found")
+    new_status = _normalize_status((payload or {}).get("status"))
+    req.status = new_status
+    db.commit()
+    return {"ok": True, "id": req.id, "status": req.status}
 
 
 @app.get("/w/{slug}/data", response_class=JSONResponse)
@@ -1210,6 +1548,7 @@ def participant_poll(
                 "participant_name": h.participant.name,
                 "message": h.message,
                 "created_at": h.created_at.isoformat(),
+                "status": h.status or "open",
             }
         )
 

@@ -36,6 +36,13 @@
       <small class="muted">The admin link isn't affected by expiry.</small>
     </label>
 
+    <label>
+      <span>Help tips / facilitator FAQ (Phase 6)</span>
+      <textarea name="help_tips_text" rows="5"
+                placeholder="One tip per line. The LLM uses these as context when a participant asks for help. e.g. 'Boot the server: docker compose up --build&#10;Stuck import: upgrade pydantic-fastapi'">{{ help_tips_text }}</textarea>
+      <small class="muted">If the OpenRouter API key is configured, these tips are sent alongside the help message to draft a suggested fix before it reaches you.</small>
+    </label>
+
     <div class="cta-row">
       <button class="btn btn-primary" type="submit">Save changes</button>
       <a class="btn" href="/admin/{{ workshop.admin_token }}">Cancel</a>

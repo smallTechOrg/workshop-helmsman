@@ -60,33 +60,67 @@
 
 <section class="card">
   <h2>Stuck? Get the room's attention.</h2>
-  <p class="muted">Type what's blocking you. The facilitator sees it on their dashboard.</p>
-  <form method="post" action="/w/{{ workshop.participant_slug }}/me/help" class="stack">
-    <textarea name="message" rows="3" maxlength="2000"
-              placeholder="e.g. My python -m src says no module named src — tried venv reinstall already."></textarea>
-    <button class="btn" type="submit">Send help flag</button>
-  </form>
+  <p class="muted">Type what's blocking you. We'll try to suggest a fix before it hits the facilitator.</p>
 
-  <h3 class="mt">Recent help flags</h3>
+  {% if pending_message %}
+    {# Two-step flow: show LLM suggestion before saving #}
+    <div class="help-confirm">
+      <h3>Before we send — here's a possible fix</h3>
+      <blockquote class="llm-suggestion">
+        <strong>Suggested:</strong> {{ pending_suggestion or "(no suggestion available)" }}
+      </blockquote>
+      <details>
+        <summary>Your message (click to edit)</summary>
+        <form method="post" action="/w/{{ workshop.participant_slug }}/me/help" class="stack mt">
+          <input type="hidden" name="step" value="commit" />
+          <textarea name="message" rows="3" maxlength="2000">{{ pending_message }}</textarea>
+          <div class="row-actions">
+            <button class="btn btn-primary" type="submit">Yes, send it</button>
+            <a class="pill" href="/w/{{ workshop.participant_slug }}/me">Cancel</a>
+          </div>
+        </form>
+      </details>
+    </div>
+  {% else %}
+    <form method="post" action="/w/{{ workshop.participant_slug }}/me/help" class="stack">
+      <input type="hidden" name="step" value="preview" />
+      <textarea name="message" rows="3" maxlength="2000"
+                placeholder="e.g. My python -m src says no module named src — tried venv reinstall already."></textarea>
+      <button class="btn btn-primary" type="submit">Get a suggestion</button>
+    </form>
+  {% endif %}
+
+  <h3 class="mt">Your help requests</h3>
   <ul class="plain-list" id="help-list">
     {% for h in latest_help %}
-      <li class="help-card">
+      <li class="help-card" data-hid="{{ h.id }}">
         <div class="help-meta">
-          <strong>{{ h.participant.name }}</strong>
+          <strong>You</strong>
           <small class="muted">· {{ h.created_at.strftime('%H:%M:%S UTC') }}</small>
+          <span class="status-pill status-{{ h.status }}" data-hid="{{ h.id }}">{{ h.status.replace('_', ' ') }}</span>
         </div>
         <div class="help-body">{{ h.message }}</div>
+        <div class="status-controls">
+          <label class="muted small">Change status:</label>
+          {% for s in help_statuses %}
+            <button class="status-btn status-btn-{{ s }} {% if s == h.status %}active{% endif %}"
+                    data-hid="{{ h.id }}"
+                    data-slug="{{ workshop.participant_slug }}"
+                    data-status="{{ s }}">{{ s.replace('_', ' ') }}</button>
+          {% endfor %}
+        </div>
       </li>
     {% else %}
       <li class="muted">No help flags yet.</li>
     {% endfor %}
   </ul>
 </section>
+
 {% endblock %}
 {% block scripts %}
 <script src="/static/app.js"></script>
+<script src="/static/help_status.js"></script>
 <script>
-  // Hand the polling loop the workshop slug + this participant's row id.
   window.__helmsman = window.__helmsman || {};
   window.__helmsman.slug = {{ workshop.participant_slug|tojson }};
   window.__helmsman.meId = {{ participant.id|tojson }};
