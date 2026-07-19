@@ -5,7 +5,7 @@
   <h1>{{ workshop.name }}</h1>
   <p class="lede">A few quick details, then we'll drop you on the tracker. No account needed.</p>
 
-  <form method="post" action="/w/{{ workshop.participant_slug }}" class="stack">
+  <form method="post" action="/w/{{ workshop.participant_slug }}" class="stack" id="join-form">
     {% for field in form_schema %}
       {% set key = field.key %}
       {% set type = field.type %}
@@ -17,7 +17,7 @@
           {% if required %}<em class="required">*</em>{% endif %}
         </span>
         {% if type == 'dropdown' %}
-          <select name="{{ key }}" {% if required %}required{% endif %}>
+          <select name="{{ key }}" {% if required %}required{% endif %} aria-required="{{ required|lower }}">
             <option value="">— select —</option>
             {% for opt in field.options or [] %}
               <option value="{{ opt }}">{{ opt }}</option>
@@ -26,12 +26,51 @@
         {% else %}
           <input type="text" name="{{ key }}"
                  {% if required %}required{% endif %}
+                 aria-required="{{ required|lower }}"
                  maxlength="200"
-                 placeholder="{{ field.placeholder or '' }}" />
+                 placeholder="{{ field.placeholder or '' }}"
+                 autocomplete="off"
+                 autocapitalize="words" />
+          <span class="field-feedback" aria-live="polite"></span>
         {% endif %}
       </label>
     {% endfor %}
-    <button class="btn btn-primary" type="submit">Join workshop</button>
+    <button class="btn btn-primary" type="submit" id="join-submit">Join workshop</button>
   </form>
 </section>
+
+<script>
+// Instant validation on join form
+(function () {
+  var form = document.getElementById('join-form');
+  if (!form) return;
+  
+  var submitBtn = document.getElementById('join-submit');
+  var inputs = form.querySelectorAll('input[required], select[required]');
+  
+  function checkValidity() {
+    var allValid = true;
+    inputs.forEach(function (input) {
+      var feedback = input.parentNode.querySelector('.field-feedback');
+      if (!input.value.trim()) {
+        input.setAttribute('aria-invalid', 'true');
+        if (feedback) feedback.textContent = 'This field is required';
+        allValid = false;
+      } else {
+        input.removeAttribute('aria-invalid');
+        if (feedback) feedback.textContent = '';
+      }
+    });
+    submitBtn.disabled = !allValid;
+  }
+  
+  inputs.forEach(function (input) {
+    input.addEventListener('input', checkValidity);
+    input.addEventListener('change', checkValidity);
+  });
+  
+  // Initial check
+  checkValidity();
+})();
+</script>
 {% endblock %}

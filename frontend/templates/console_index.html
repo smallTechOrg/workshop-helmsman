@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Workshops — Console{% endblock %}
+{% block content %}
+<section class="console">
+  <header class="console-header">
+    <h1>Workshops</h1>
+    <p class="console-subtitle">Your workshop dashboard</p>
+  </header>
+
+  {% if workshops|length > 0 %}
+  <section class="table-responsive">
+    <table class="workshops-table">
+      <thead>
+        <tr>
+          <th>Workshop</th>
+          <th>Created</th>
+          <th>Status</th>
+          <th>Attendees</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in workshops %}
+        <tr>
+          <td>
+            <a href="/console/workshop/{{ w.id }}/edit" class="workshop-link">{{ w.name }}</a>
+          </td>
+          <td>{{ w.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>
+            {% if w.archived %}
+              <span class="status-badge status-archived">Archived</span>
+            {% elif w.paused %}
+              <span class="status-badge status-paused">Paused</span>
+            {% elif w.is_expired() %}
+              <span class="status-badge status-ended">Ended</span>
+            {% else %}
+              <span class="status-badge status-live">Live</span>
+            {% endif %}
+          </td>
+          <td>{{ w.participants|length }}</td>
+          <td class="actions">
+            {% if not w.archived %}
+            <a href="/console/workshop/{{ w.id }}/edit" class="btn btn-sm btn-outline">Edit</a>
+            <a href="/console/workshop/{{ w.id }}/clone" class="btn btn-sm btn-outline">Clone</a>
+            <a href="/admin/{{ w.admin_token }}/archive" class="btn btn-sm btn-outline" onclick="return confirm('Archive this workshop?');">Archive</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% else %}
+  <section class="empty-state">
+    <h2>No workshops yet</h2>
+    <p>Create your first workshop to get started.</p>
+    <a href="/console/workshop/new" class="btn btn-primary btn-lg">Create First Workshop</a>
+  </section>
+  {% endif %}
+</section>
+{% endblock %}
