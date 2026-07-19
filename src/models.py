@@ -1,10 +1,14 @@
-"""SQLAlchemy ORM models for Workshop Helmsman."""
+"""SQLAlchemy ORM models for Workshop Helmsman (World-Class UX)."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
+from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+import json
+
+from sqlalchemy import Boolean, DateTime, Enum as SQLEnum, ForeignKey, Integer, String, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -14,22 +18,174 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# --- Default form schema (Phase 4) ---
+def utcnow_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
-DEFAULT_FORM_SCHEMA = [
+
+class MilestoneCategory(str, Enum):
+    SETUP = "setup"
+    CORE_LEARNING = "learning"
+    HANDS_ON = "hands_on"
+    BREAK = "break"
+    ASSESSMENT = "assessment"
+    WRAP_UP = "wrap_up"
+
+
+class FormFieldType(str, Enum):
+    TEXT = "text"
+    EMAIL = "email"
+    DROPDOWN = "dropdown"
+    MULTI_SELECT = "multi_select"
+    FILE = "file"
+    URL = "url"
+    TEXTAREA = "textarea"
+
+
+# Default milestone configuration for new workshops
+DEFAULT_MILESTONE_CONFIG = [
     {
-        "key": "display_name",
-        "type": "text",
-        "label": "Display name",
-        "placeholder": "e.g. Priya, anu from Delhi, J. Smith",
-        "required": True,
-    }
+        "id": "m0",
+        "title": "Setup",
+        "description": "Environment ready, repo cloned",
+        "duration_min": 30,
+        "category": MilestoneCategory.SETUP.value,
+        "help_tip": "Verify everyone can run the starter",
+    },
+    {
+        "id": "m1",
+        "title": "API Key",
+        "description": "LLM provider key configured",
+        "duration_min": 15,
+        "category": MilestoneCategory.SETUP.value,
+        "help_tip": "Use env var, not hardcoded",
+    },
+    {
+        "id": "m2",
+        "title": "First Build",
+        "description": "End-to-end hello world shipped",
+        "duration_min": 60,
+        "category": MilestoneCategory.HANDS_ON.value,
+        "help_tip": "Run the test suite after",
+    },
+    {
+        "id": "m3",
+        "title": "Done",
+        "description": "Wrap-up and Q&A",
+        "duration_min": 15,
+        "category": MilestoneCategory.WRAP_UP.value,
+        "help_tip": "Capture feedback before they leave",
+    },
+]
+
+# Default form schema for new workshops
+DEFAULT_FORM_SCHEMA = [
+    {"key": "display_name", "type": "text", "label": "Full Name", "required": True},
+    {"key": "email", "type": "email", "label": "Email Address", "required": False},
+    {"key": "role", "type": "dropdown", "label": "Role", "required": False, "options": ["Student", "Developer", "Designer", "Manager", "Other"]},
+    {"key": "company", "type": "text", "label": "Company", "required": False},
+    {"key": "skill_level", "type": "dropdown", "label": "Skill Level", "required": False, "options": ["Beginner", "Intermediate", "Advanced"]},
+    {"key": "team", "type": "text", "label": "Team", "required": False},
 ]
 
 
-def _utcnow_naive() -> datetime:
-    """SQLite stores naive datetimes; return naive UTC consistently."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+# --- Phase 5: Agenda Templates ---
+
+DEFAULT_AGENDA_TEMPLATES = [
+    {
+        "name": "Web Development Workshop",
+        "milestones": [
+            {
+                "title": "Setup",
+                "description": "Install Node.js, clone repo, install dependencies",
+                "duration_min": 30,
+                "category": MilestoneCategory.SETUP.value,
+                "help_tip": "Use nvm for Node version management",
+            },
+            {
+                "title": "Frontend Basics",
+                "description": "Learn React components and state management",
+                "duration_min": 60,
+                "category": MilestoneCategory.CORE_LEARNING.value,
+                "help_tip": "Start with functional components",
+            },
+            {
+                "title": "Build a Todo App",
+                "description": "Apply learning by building a todo application",
+                "duration_min": 90,
+                "category": MilestoneCategory.HANDS_ON.value,
+                "help_tip": "Use local storage for persistence",
+            },
+            {
+                "title": "Break",
+                "description": "Coffee and networking",
+                "duration_min": 15,
+                "category": MilestoneCategory.BREAK.value,
+                "help_tip": "Stay hydrated!",
+            },
+            {
+                "title": "Testing & Debugging",
+                "description": "Write unit tests and debug common issues",
+                "duration_min": 45,
+                "category": MilestoneCategory.ASSESSMENT.value,
+                "help_tip": "Use Jest and React Testing Library",
+            },
+            {
+                "title": "Deployment",
+                "description": "Deploy the app to Vercel or Netlify",
+                "duration_min": 30,
+                "category": MilestoneCategory.WRAP_UP.value,
+                "help_tip": "Set up custom domain and environment variables",
+            },
+        ],
+    },
+    {
+        "name": "Data Science Bootcamp",
+        "milestones": [
+            {
+                "title": "Environment Setup",
+                "description": "Install Python, Jupyter, and essential libraries",
+                "duration_min": 30,
+                "category": MilestoneCategory.SETUP.value,
+                "help_tip": "Use conda or virtualenv",
+            },
+            {
+                "title": "Data Wrangling",
+                "description": "Clean and explore datasets with Pandas",
+                "duration_min": 60,
+                "category": MilestoneCategory.CORE_LEARNING.value,
+                "help_tip": "Learn pandas DataFrame operations",
+            },
+            {
+                "title": "Machine Learning Model",
+                "description": "Build and evaluate a predictive model",
+                "duration_min": 90,
+                "category": MilestoneCategory.HANDS_ON.value,
+                "help_tip": "Start with linear regression",
+            },
+            {
+                "title": "Break",
+                "description": "Snack and stretch",
+                "duration_min": 10,
+                "category": MilestoneCategory.BREAK.value,
+                "help_tip": "Take a short walk",
+            },
+            {
+                "title": "Model Evaluation",
+                "description": "Assess model performance and tune hyperparameters",
+                "duration_min": 45,
+                "category": MilestoneCategory.ASSESSMENT.value,
+                "help_tip": "Use cross-validation",
+            },
+            {
+                "title": "Presentation",
+                "description": "Present findings and get feedback",
+                "duration_min": 30,
+                "category": MilestoneCategory.WRAP_UP.value,
+                "help_tip": "Use slides and tell a story",
+            },
+        ],
+    },
+]
 
 
 class FormTemplate(Base):
@@ -60,40 +216,6 @@ class FormTemplate(Base):
             return data if isinstance(data, list) else []
         except Exception:
             return []
-
-
-# --- Phase 5: Agenda Templates ---
-
-DEFAULT_AGENDA_TEMPLATES = [
-    {
-        "name": "4-Phase Workshop",
-        "milestones": [
-            {"title": "Setup", "description": "Environment ready, repo cloned"},
-            {"title": "API Key", "description": "LLM provider key configured"},
-            {"title": "First Build", "description": "End-to-end hello world shipped"},
-            {"title": "Done", "description": "Wrap-up and Q&A"},
-        ],
-    },
-    {
-        "name": "6-Phase Sprint",
-        "milestones": [
-            {"title": "Kickoff", "description": "Goals and team alignment"},
-            {"title": "Setup", "description": "Dev environment configured"},
-            {"title": "Core Feature", "description": "Primary feature built"},
-            {"title": "Testing", "description": "Tests written and passing"},
-            {"title": "Polish", "description": "UI and edge cases addressed"},
-            {"title": "Demo", "description": "Present working result"},
-        ],
-    },
-    {
-        "name": "3-Phase Quickstart",
-        "milestones": [
-            {"title": "Intro", "description": "Context and learning objectives"},
-            {"title": "Build", "description": "Hands-on implementation"},
-            {"title": "Review", "description": "Discussion and next steps"},
-        ],
-    },
-]
 
 
 class AgendaTemplate(Base):
@@ -129,104 +251,80 @@ class Workshop(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    admin_token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
-    participant_slug: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
-    milestone_config: Mapped[str] = mapped_column(Text, nullable=False)  # JSON-as-text
-    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    admin_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    participant_slug: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    # New fields for world-class UX
+    difficulty_level: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    milestone_config_json: Mapped[str] = mapped_column(Text, nullable=False, default=json.dumps(DEFAULT_MILESTONE_CONFIG))
+    form_schema_json: Mapped[str] = mapped_column(Text, nullable=False, default=json.dumps(DEFAULT_FORM_SCHEMA))
+    kb_link: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    kb_title: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    # Existing fields that were missing
+    broadcast_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    milestone_order_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # Phase 4: form template link (nullable; SET NULL on delete).
+    # Relationships
     form_template_id: Mapped[int | None] = mapped_column(
         ForeignKey("form_template.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    # Phase 4: snapshot of the form schema used at join time. Editing the
-    # template later does NOT mutate this.
-    form_schema_json: Mapped[str] = mapped_column(
-        Text, nullable=False, default=lambda: __import__("json").dumps(DEFAULT_FORM_SCHEMA)
-    )
-
-    # Phase 6: facilitator QA / FAQ tips injected into the LLM prompt when a
-    # participant raises a help flag. Stored as a free-form text block (one
-    # tip per line, optional `topic: tip` format). Empty string == unused.
-    help_tips_json: Mapped[str | None] = mapped_column(Text, nullable=True, default="")
-
-    def help_tips(self) -> str:
-        """Return the FA Q-tips text block (empty string if unset)."""
-        return self.help_tips_json or ""
-
-    form_template: Mapped["FormTemplate | None"] = relationship("FormTemplate")
-    participants: Mapped[list["Participant"]] = relationship(
-        back_populates="workshop",
-        cascade="all, delete-orphan",
-    )
+    participants: Mapped[list["Participant"]] = relationship(back_populates="workshop", cascade="all, delete-orphan")
 
     def is_expired(self) -> bool:
-        # SQLite returns naive datetimes; normalize both sides to naive UTC.
+        if self.expires_at is None:
+            return False
         now = utcnow()
         if now.tzinfo is not None:
             now = now.replace(tzinfo=None)
         exp = self.expires_at
-        if exp is not None and exp.tzinfo is not None:
+        if exp.tzinfo is not None:
             exp = exp.replace(tzinfo=None)
         return now > exp
 
     def milestones(self) -> list[dict]:
-        import json
-
         try:
-            return json.loads(self.milestone_config)
+            data = json.loads(self.milestone_config_json or "[]")
+            return data if isinstance(data, list) else []
         except Exception:
             return []
 
+    def ordered_milestones(self) -> list[dict]:
+        # For simplicity, we return milestones in the order they are stored.
+        # In the future, we might want to store an explicit order.
+        return self.milestones()
+
     def form_schema(self) -> list[dict]:
-        """Return this workshop's form schema snapshot (list of field dicts).
-
-        Falls back to DEFAULT_FORM_SCHEMA if the stored value is missing or
-        malformed, which keeps older workshops usable after the Phase 4 schema
-        upgrade.
-        """
-        import json
-
-        raw = self.form_schema_json
-        if not raw:
-            return list(DEFAULT_FORM_SCHEMA)
         try:
-            data = json.loads(raw)
-            if isinstance(data, list) and data:
-                return data
+            data = json.loads(self.form_schema_json or "[]")
+            return data if isinstance(data, list) else []
         except Exception:
-            pass
-        return list(DEFAULT_FORM_SCHEMA)
+            return []
 
 
 class Participant(Base):
     __tablename__ = "participant"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    workshop_id: Mapped[int] = mapped_column(ForeignKey("workshop.id", ondelete="CASCADE"), index=True)
+    workshop_id: Mapped[int] = mapped_column(
+        ForeignKey("workshop.id", ondelete="CASCADE"), index=True
+    )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     joined_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-
-    # Phase 4: captured form answers as a JSON dict {key: value}.
-    # Nullable so older phase-1 participants survive the schema upgrade.
-    answers_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answers_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     workshop: Mapped["Workshop"] = relationship(back_populates="participants")
     completions: Mapped[list["MilestoneCompletion"]] = relationship(
-        back_populates="participant",
-        cascade="all, delete-orphan",
+        back_populates="participant", cascade="all, delete-orphan"
     )
     help_requests: Mapped[list["HelpRequest"]] = relationship(
-        back_populates="participant",
-        cascade="all, delete-orphan",
+        back_populates="participant", cascade="all, delete-orphan"
     )
 
     def answers(self) -> dict:
-        """Return participant's captured answers as a plain dict (empty if none)."""
-        import json
-
         if not self.answers_json:
             return {}
         try:
@@ -259,15 +357,14 @@ class HelpRequest(Base):
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-
-    # Phase 6: lifecycle status. Default 'open' (= new, awaiting facilitator).
-    # 'on_hold' = facilitator paused it (waiting on participant, escalated).
-    # 'resolved' = handled.
-    status: Mapped[str] = mapped_column(String(16), default="open", nullable=False)
+    status: Mapped[str] = mapped_column(
+        SQLEnum("open", "on_hold", "resolved", name="help_status"),
+        default="open",
+        nullable=False,
+    )
 
     participant: Mapped["Participant"] = relationship(back_populates="help_requests")
 
 
-# Phase 6: the three valid HelpRequest.status values. Validated centrally so
-# route handlers and templates share one source of truth.
+# Helper constants and functions
 HELP_STATUSES = ("open", "on_hold", "resolved")

@@ -1,204 +1,300 @@
 {% extends "base.html" %}
-{% block title %}{{ workshop.name }} · Facilitator{% endblock %}
-{% block topnav %}
-  <a class="pill" href="/admin/{{ workshop.admin_token }}/edit">Edit</a>
-  <a class="pill" href="/admin/{{ workshop.admin_token }}/export.csv">Export CSV</a>
-  <form method="post" action="/admin/{{ workshop.admin_token }}/clone" style="display:inline">
-    <button class="pill" type="submit">Clone workshop</button>
-  </form>
-  <form method="post" action="/admin/{{ workshop.admin_token }}/archive" style="display:inline"
-        onsubmit="return confirm('Archive this workshop? Participants will be locked out.')">
-    <button class="pill" type="submit">Archive</button>
-  </form>
-{% endblock %}
+{% block title %}Admin Dashboard — {{ workshop.name }} — Workshop Helmsman{% endblock %}
 {% block content %}
-<section class="card">
-  <div class="card-header">
+<header class="admin-header">
+  <div class="admin-header-content">
     <h1>{{ workshop.name }}</h1>
-    <div class="meta">
-      <span class="badge {% if workshop.archived %}badge-archived{% elif workshop.is_expired() %}badge-expired{% else %}badge-live{% endif %}">
-        {% if workshop.archived %}archived{% elif workshop.is_expired() %}expired{% else %}live{% endif %}
-      </span>
-      <span class="muted">expires {{ workshop.expires_at.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+    <div class="admin-header-actions">
+      <a href="/console" class="btn btn-ghost">← Console</a>
+      <a href="/w/{{ workshop.participant_slug }}" class="btn btn-outline" target="_blank">Participant View</a>
+    </div>
+  </div>
+  <p class="admin-header-subtitle">Your workshop command center</p>
+</header>
+
+<section class="admin-dashboard">
+  <!-- Dashboard Cards -->
+  <div class="stats-grid">
+    <div class="stat-card" onclick="window.location='#participants'">
+      <div class="stat-card-header">
+        <h3>Participants</h3>
+        <p class="subtext">Joined & active</p>
+      </div>
+      <div class="stat-card-body">
+        <div class="stat-number">{{ participant_count }}</div>
+        <div class="stat-detail">{{ active_now }} active now</div>
+      </div>
+    </div>
+
+    <div class="stat-card" onclick="window.location='#milestones'">
+      <div class="stat-card-header">
+        <h3>Progress</h3>
+        <p class="subtext">Average completion</p>
+      </div>
+      <div class="stat-card-body">
+        <div class="stat-number">{{ avg_completion }}%</div>
+        <div class="stat-detail">of {{ milestones|length }} milestones</div>
+      </div>
+    </div>
+
+    <div class="stat-card" onclick="window.location='#help'">
+      <div class="stat-card-header">
+        <h3>Help Requests</h3>
+        <p class="subtext">Needing your attention</p>
+      </div>
+      <div class="stat-card-body">
+        <div class="stat-number">{{ help_requests_count }}</div>
+        <div class="stat-detail">open requests</div>
+      </div>
     </div>
   </div>
 
-  <div class="link-row">
-    <div>
-      <small class="muted">Participant link</small>
-      <div style="display:flex;align-items:center;gap:0.5rem">
-        <code class="big-link" id="participant-link">/w/{{ workshop.participant_slug }}</code>
-        <button class="btn btn-small" id="copy-btn" type="button">Copy link</button>
-      </div>
-    </div>
-    <div>
-      <small class="muted">Admin link (keep secret)</small>
-      <code class="big-link">/admin/{{ workshop.admin_token }}</code>
-    </div>
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="participants">Participants</button>
+    <button class="tab-btn" data-tab="milestones">Milestones</button>
+    <button class="tab-btn" data-tab="broadcast">Broadcast</button>
+    <button class="tab-btn" data-tab="help">Help Requests</button>
+    <button class="tab-btn" data-tab="export">Export</button>
   </div>
-  <p class="muted">Share the participant link with attendees. Bookmark the admin link — it's the only place you'll revisit this dashboard.</p>
-</section>
 
-<section class="grid two">
-  <div class="card">
-    <h2>Stats</h2>
-    <div class="stat-row">
-      <div><span class="stat-num">{{ participant_count }}</span><span class="stat-label">participants</span></div>
-      <div><span class="stat-num">{{ help_requests|length }}</span><span class="stat-label">help flags</span></div>
+  <!-- Tab Content -->
+  <div class="tab-content">
+
+    <!-- Participants Tab -->
+    <div class="tab-pane active" id="participants">
+      <h2>Participants</h2>
+      <div class="table-responsive">
+        <table class="participants-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Joined</th>
+              <th>Progress</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in participants %}
+            <tr>
+              <td>{{ p.name }}</td>
+              <td>{{ p.joined_at.strftime('%H:%M') }}</td>
+              <td>
+                <div class="progress-bar">
+                  <div class="progress-bar-fill" style="width: {{ p.progress }}%"></div>
+                </div>
+                <span class="progress-text">{{ p.progress }}%</span>
+              </td>
+              <td class="actions">
+                <button class="btn btn-sm btn-outline" onclick="advanceParticipant({{ p.id }})">Advance</button>
+                <button class="btn btn-sm btn-outline" onclick="messageParticipant({{ p.id }})">Message</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
 
-    <h3 class="mt">Per-milestone completion</h3>
-    <table class="table compact">
-      <thead><tr><th>Milestone</th><th>Done</th><th>% participants</th></tr></thead>
-      <tbody>
-        {% for s in stats %}
-          <tr>
-            <td><strong>{{ s.title }}</strong><br /><small class="muted">{{ s.description }}</small></td>
-            <td>{{ s.count }} / {{ participant_count }}</td>
-            <td>
-              <div class="bar"><div class="bar-fill" style="width: {{ s.pct }}%"></div></div>
-              <small class="muted">{{ s.pct }}%</small>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-
-    {% if cohort_bar is defined and cohort_bar %}
-      <h3 class="mt">Cohort progress</h3>
-      <div class="stacked-bar-container">
-        {% for seg in cohort_bar.segments %}
-          {% if seg.count > 0 %}
-            <div class="stacked-bar-segment"
-                 style="width:{{ (100 * seg.count / cohort_bar.total)|round|int }}%; background:{{ seg.color }}"
-                 title="{{ seg.label }}: {{ seg.count }} participant(s)"></div>
-          {% endif %}
-        {% endfor %}
+    <!-- Milestones Tab -->
+    <div class="tab-pane" id="milestones">
+      <h2>Milestones</h2>
+      <div class="milestones-controls">
+        <button class="btn btn-primary" id="advance-all">Advance All</button>
+        <button class="btn btn-secondary" id="pause-toggle">{% if workshop.paused %}Resume{% else %}Pause{% endif %}</button>
       </div>
-      <div class="stacked-bar-legend">
-        {% for seg in cohort_bar.segments %}
-          {% if seg.count > 0 %}
-            <span class="stacked-legend-item">
-              <span class="stacked-legend-swatch" style="background:{{ seg.color }}"></span>
-              {{ seg.label }} ({{ seg.count }})
+      <div class="milestones-list">
+        {% for m in milestones %}
+        <div class="milestone-card">
+          <div class="milestone-header">
+            <h3>{{ m.title }}</h3>
+            <span class="milestone-category" style="background: {{ category_colors[m.category] }}22; color: {{ category_colors[m.category] }};">
+              {{ m.category|capitalize }}
             </span>
-          {% endif %}
+          </div>
+          <div class="milestone-body">
+            <p>{{ m.description }}</p>
+            {% if m.help_tip %}
+            <p class="muted small">{{ m.help_tip }}</p>
+            {% endif %}
+          </div>
+          <div class="milestone-footer">
+            <span class="milestone-duration">{{ m.duration_min }} min</span>
+            <div class="milestone-actions">
+              <button class="btn btn-sm btn-outline" onclick="advanceMilestone('{{ m.id }}')">Advance</button>
+            </div>
+          </div>
+        </div>
         {% endfor %}
-        <span class="muted" style="margin-left:auto">n={{ cohort_bar.total }}</span>
       </div>
-    {% endif %}
-  </div>
+    </div>
 
-  <div class="card">
-    <h2>Help flags</h2>
-    {% if help_requests %}
-      <ul class="plain-list">
-        {% for h in help_requests %}
-          <li class="help-card" data-hid="{{ h.id }}">
-            <div class="help-meta">
-              <strong>{{ h.participant.name }}</strong>
-              <small class="muted">· {{ h.created_at.strftime('%H:%M:%S UTC') }}</small>
-              <span class="status-pill status-{{ h.status }}" data-hid="{{ h.id }}">{{ h.status.replace('_', ' ') }}</span>
+    <!-- Broadcast Tab -->
+    <div class="tab-pane" id="broadcast">
+      <h2>Broadcast Message</h2>
+      <form id="broadcast-form">
+        <div class="form-group">
+          <label for="broadcast-message">Message to all participants</label>
+          <textarea id="broadcast-message" rows="4" placeholder="Enter your message here..." required></textarea>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-inline">
+            <input type="checkbox" id="persistent-banner" checked>
+            Show as persistent banner (until dismissed)
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary">Send Broadcast</button>
+      </form>
+      <div class="broadcast-history">
+        <h3>Recent Broadcasts</h3>
+        <div class="broadcast-item">
+          <p class="broadcast-text">Welcome to the workshop! Let's get started.</p>
+          <small>Just now</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Help Requests Tab -->
+    <div class="tab-pane" id="help">
+      <h2>Help Requests</h2>
+      <div class="help-requests-list">
+        {% for hr in help_requests %}
+        <div class="help-request-card {{ 'status-' + hr.status }}">
+          <div class="help-request-header">
+            <h4>{{ hr.participant_name }}</h4>
+            <span class="status-badge status-{{ hr.status }}">{{ hr.status|upper }}</span>
+          </div>
+          <div class="help-request-body">
+            <p>{{ hr.message }}</p>
+          </div>
+          <div class="help-request-footer">
+            <small>{{ hr.created_at.strftime('%H:%M') }}</small>
+            <div class="help-request-actions">
+              <button class="btn btn-sm btn-outline" onclick="updateHelpStatus({{ hr.id }}, 'on_hold')">On Hold</button>
+              <button class="btn btn-sm btn-outline" onclick="updateHelpStatus({{ hr.id }}, 'resolved')">Resolved</button>
             </div>
-            <div class="help-body">{{ h.message }}</div>
-            <div class="status-controls">
-              <label class="muted small">Change status:</label>
-              {% for s in help_statuses %}
-                <button class="status-btn status-btn-{{ s }} {% if s == h.status %}active{% endif %}"
-                        data-admin="{{ workshop.admin_token }}"
-                        data-hid="{{ h.id }}"
-                        data-status="{{ s }}">{{ s.replace('_', ' ') }}</button>
-              {% endfor %}
-            </div>
-          </li>
+          </div>
+        </div>
         {% endfor %}
-      </ul>
-    {% else %}
-      <p class="muted">No one has flagged for help. Nice.</p>
-    {% endif %}
-  {% if has_more_help %}
-      <a class="pill" href="/admin/{{ workshop.admin_token }}?page={{ help_page + 1 }}">Older →</a>
-    {% endif %}
+      </div>
+    </div>
+
+    <!-- Export Tab -->
+    <div class="tab-pane" id="export">
+      <h2>Export Data</h2>
+      <p class="muted">Download participant data for analysis.</p>
+      <div class="export-options">
+        <button class="btn btn-primary" id="export-csv">Export CSV</button>
+        <button class="btn btn-secondary" id="export-json">Export JSON</button>
+      </div>
+    </div>
+
   </div>
 </section>
 
-<section class="card">
-  <h2>Participants</h2>
-  {% if rows %}
-    <table class="table">
-      <thead>
-        <tr>
-          <th>#</th><th>Name</th><th>Joined</th><th>Progress</th><th>Milestones</th>
-        </tr>
-      </thead>
-      <tbody id="participants-tbody">
-        {% for r in rows %}
-          <tr{% if loop.index > 30 %} class="participant-extra hidden" style="display:none"{% endif %}>
-            <td>{{ loop.index }}</td>
-            <td>
-              <a href="/admin/{{ workshop.admin_token }}/participant/{{ r.participant.id }}">
-                <strong>{{ r.participant.name }}</strong>
-              </a>
-            </td>
-            <td><small class="muted">{{ r.participant.joined_at.strftime('%H:%M:%S UTC') }}</small></td>
-            <td>
-              <div class="bar"><div class="bar-fill" style="width: {{ r.pct }}%"></div></div>
-              <small class="muted">{{ r.completed_count }} / {{ r.total }} · {{ r.pct }}%</small>
-            </td>
-            <td>
-              {% for m in milestones %}
-                <span class="chip {% if m.id in r.completed_ids %}chip-done{% endif %}">{{ m.title }}</span>
-              {% endfor %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% if rows|length > 30 %}
-      <button class="btn btn-small mt" id="toggle-participants" type="button">Show remaining {{ rows|length - 30 }}</button>
-    {% endif %}
-  {% else %}
-    <p class="muted">No one has joined yet. Share the participant link to start.</p>
-  {% endif %}
-</section>
-{% endblock %}
-{% block scripts %}
-    <script src="/static/help_status.js"></script>
 <script>
-  (function () {
-    var link = document.getElementById('participant-link');
-    var btn = document.getElementById('copy-btn');
-    if (!link || !btn) return;
-    btn.addEventListener('click', function () {
-      var full = window.location.origin + link.textContent.trim();
-      navigator.clipboard.writeText(full).then(function () {
-        btn.textContent = 'Copied!';
-        setTimeout(function () { btn.textContent = 'Copy link'; }, 2000);
-      }).catch(function () {
-        var range = document.createRange();
-        range.selectNode(link);
-        window.getSelection().removeAllRanges();
-        window.getSelection().addRange(range);
-      });
-    });
-  })();
-  // Participant table: show first 30, toggle reveals remaining.
-  (function () {
-    var btn = document.getElementById('toggle-participants');
-    if (btn) {
-      btn.addEventListener('click', function () {
-        var extra = document.querySelectorAll('.participant-extra');
-        var anyShown = Array.prototype.some.call(extra, function (el) { return el.style.display !== 'none'; });
-        if (anyShown) {
-          extra.forEach(function (el) { el.style.display = 'none'; });
-          var total = {{ rows|length }};
-          btn.textContent = 'Show remaining ' + (total - 30);
-        } else {
-          extra.forEach(function (el) { el.style.display = ''; });
-          btn.textContent = 'Show fewer';
+// Tab switching
+document.addEventListener('DOMContentLoaded', function() {
+  const tabButtons = document.querySelectorAll('.tab-btn');
+  const tabPanes = document.querySelectorAll('.tab-pane');
+
+  tabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const tab = button.dataset.tab;
+      
+      // Update buttons
+      tabButtons.forEach(btn => btn.classList.remove('active'));
+      button.classList.add('active');
+      
+      // Update panes
+      tabPanes.forEach(pane => {
+        pane.classList.remove('active');
+        if (pane.id === tab) {
+          pane.classList.add('active');
         }
       });
-    }
-  })();
+    });
+  });
+
+  // Pause/Resume toggle
+  const pauseToggle = document.getElementById('pause-toggle');
+  if (pauseToggle) {
+    pauseToggle.addEventListener('click', function() {
+      const isPaused = {% if workshop.paused %}true{% else %}false{% endif %};
+      const action = isPaused ? 'resume' : 'pause';
+      fetch(`/admin/{{ workshop.admin_token }}/${action}`, { method: 'POST' })
+        .then(response => {
+          if (response.ok) {
+            location.reload();
+          }
+        });
+    });
+  }
+
+  // Advance all milestones
+  document.getElementById('advance-all').addEventListener('click', function() {
+    fetch(`/admin/{{ workshop.admin_token }}/advance_all`, { method: 'POST' })
+      .then(response => {
+        if (response.ok) {
+          location.reload();
+        }
+      });
+  });
+
+  // Broadcast form
+  const broadcastForm = document.getElementById('broadcast-form');
+  if (broadcastForm) {
+    broadcastForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const message = document.getElementById('broadcast-message').value;
+      const persistent = document.getElementById('persistent-banner').checked;
+      
+      fetch(`/admin/{{ workshop.admin_token }}/broadcast`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `message=${encodeURIComponent(message)}&persistent=${persistent}`
+      })
+      .then(response => {
+        if (response.ok) {
+          // Clear form and show success
+          broadcastForm.reset();
+          // Optionally show a toast or update the history
+          location.reload(); // Simple refresh for now
+        }
+      });
+    });
+  }
+
+  // Helper functions (would need corresponding endpoints)
+  function advanceParticipant(participantId) {
+    // TODO: Implement
+    alert('Advance participant functionality not implemented yet');
+  }
+
+  function messageParticipant(participantId) {
+    // TODO: Implement
+    alert('Message participant functionality not implemented yet');
+  }
+
+  function advanceMilestone(milestoneId) {
+    // TODO: Implement
+    alert('Advance milestone functionality not implemented yet');
+  }
+
+  function updateHelpStatus(requestId, status) {
+    // TODO: Implement
+    alert('Update help status functionality not implemented yet');
+  }
+
+  // Export functions
+  document.getElementById('export-csv').addEventListener('click', function() {
+    window.location = '/admin/{{ workshop.admin_token }}/export.csv';
+  });
+
+  document.getElementById('export-json').addEventListener('click', function() {
+    window.location = '/admin/{{ workshop.admin_token }}/export.json';
+  });
 </script>
 {% endblock %}

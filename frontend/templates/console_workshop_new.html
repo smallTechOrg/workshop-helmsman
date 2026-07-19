@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+{% block title %}Create Workshop — Console{% endblock %}
+{% block content %}
+<header class="console-header">
+  <a class="btn btn-ghost btn-sm" href="/console">← Console</a>
+  <h1>Create Workshop</h1>
+  <p class="console-subtitle">Name it, design the agenda, set the form. Two links come out: one for you, one for attendees.</p>
+</header>
+
+<main class="wizard-container">
+  <!-- Progress Tracker -->
+  <nav class="wizard-progress" aria-label="Create workshop progress">
+    <ol>
+      <li class="active" data-step="1">
+        <span class="step-num">1</span>
+        <span class="step-label">Basics</span>
+      </li>
+      <li data-step="2">
+        <span class="step-num">2</span>
+        <span class="step-label">Milestones</span>
+      </li>
+      <li data-step="3">
+        <span class="step-num">3</span>
+        <span class="step-label">Form</span>
+      </li>
+      <li data-step="4">
+        <span class="step-num">4</span>
+        <span class="step-label">Resources</span>
+      </li>
+      <li data-step="5">
+        <span class="step-num">5</span>
+        <span class="step-label">Review</span>
+      </li>
+    </ol>
+  </nav>
+
+  <form method="post" action="/console/workshop/new" id="wizard-form" class="wizard-form">
+    <input type="hidden" name="milestones_json" id="milestones-json" />
+    <input type="hidden" name="fields_json" id="fields-json" />
+    <input type="hidden" name="current_step" id="current-step" value="1" />
+
+    <!-- Step 1: Basics -->
+    <section class="wizard-step active" data-step="1" id="step-1">
+      <header class="step-header">
+        <h2>Basics</h2>
+        <p class="muted">Give your workshop a name and set the duration</p>
+      </header>
+
+      <div class="field-group">
+        <label class="field field-wide">
+          <span>Workshop name <span class="required">*</span></span>
+          <input name="name" required maxlength="120" placeholder="e.g. Intro to AI · 18 Jul" autofocus />
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label class="field field-wide">
+          <span>Duration <span class="required">*</span></span>
+          <select name="ttl_hours" id="duration-select" required>
+            <option value="2">2 hours</option>
+            <option value="4">4 hours</option>
+            <option value="8" selected>8 hours</option>
+            <option value="16">16 hours</option>
+            <option value="24">24 hours</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </label>
+        <label class="field field-narrow" id="custom-duration-wrapper" style="display:none;">
+          <span>Custom hours</span>
+          <input name="ttl_hours_custom" type="number" min="1" max="168" placeholder="1–168" />
+        </label>
+      </div>
+
+      <div class="field-group">
+        <label class="field field-wide">
+          <span>Start from template</span>
+          <select name="agenda_template_id" id="agenda-template-select">
+            <option value="">— Blank (build from scratch) —</option>
+            {% for tpl in agenda_templates %}
+            <option value="{{ tpl.id }}" data-milestones='{{ tpl.milestones_json|tojson }}'>
+              {{ tpl.name }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <p class="muted small">Templates pre-fill milestones. You can edit, reorder, or delete them in the next step.</p>
+      </div>
+
+      <div class="step-actions">
+        <button type="button" class="btn btn-primary" onclick="nextStep(2)">Continue →</button>
+      </div>
+    </section>
+
+    <!-- Step 2: Milestones -->
+    <section class="wizard-step" data-step="2" id="step-2">
+      <header class="step-header">
+        <h2>Milestones</h2>
+        <p class="muted">Drag to reorder. Click title to edit. Each milestone becomes a column on the participant tracker.</p>
+      </header>
+
+      <div class="milestone-toolbar">
+        <button type="button" class="btn btn-secondary btn-sm" id="add-milestone">+ Add milestone</button>
+        <div class="toolbar-info muted small">
+          <span id="milestone-count">0</span> milestones · <span id="total-duration">0</span> min total
+        </div>
+      </div>
+
+      <ol class="milestone-list" id="milestone-list" data-next-id="0">
+        <!-- Milestones rendered by JS -->
+      </ol>
+
+      <div class="step-actions">
+        <button type="button" class="btn btn-ghost" onclick="prevStep(1)">← Back</button>
+        <button type="button" class="btn btn-primary" onclick="nextStep(3)">Continue →</button>
+      </div>
+    </section>
+
+    <!-- Step 3: Participant Form -->
+    <section class="wizard-step" data-step="3" id="step-3">
+      <header class="step-header">
+        <h2>Participant Form</h2>
+        <p class="muted">Configure what info you need from each attendee. Full Name is always required.</p>
+      </header>
+
+      <div class="form-builder">
+        <div class="form-fields-list" id="form-fields-list">
+          <!-- Full Name (locked) -->
+          <div class="form-field-row locked" data-key="display_name">
+            <span class="field-drag">⋮⋮</span>
+            <div class="field-info">
+              <strong>Full Name</strong>
+              <span class="badge badge-text">text</span>
+              <span class="badge badge-required">Required</span>
+            </div>
+            <span class="lock-tooltip" title="This field is always required">🔒</span>
+          </div>
+          <!-- Additional fields added here -->
+        </div>
+
+        <button type="button" class="btn btn-secondary" id="add-form-field">+ Add field</button>
+
+        <div class="form-preview-toggle">
+          <label class="checkbox-inline">
+            <input type="checkbox" id="show-preview" checked />
+            <span>Show live preview</span>
+          </label>
+        </div>
+
+        <div class="form-preview" id="form-preview">
+          <h4>Participant preview</h4>
+          <div class="preview-fields" id="preview-fields"></div>
+        </div>
+      </div>
+
+      <div class="step-actions">
+        <button type="button" class="btn btn-ghost" onclick="prevStep(2)">← Back</button>
+        <button type="button" class="btn btn-primary" onclick="nextStep(4)">Continue →</button>
+      </div>
+    </section>
+
+    <!-- Step 4: Knowledge Base / Resources -->
+    <section class="wizard-step" data-step="4" id="step-4">
+      <header class="step-header">
+        <h2>Resources & Knowledge Base</h2>
+        <p class="muted">Link a Google Drive folder with slides, docs, and resources. Participants can access from their tracker.</p>
+      </header>
+
+      <div class="field-group">
+        <label class="field field-wide">
+          <span>Google Drive folder link</span>
+          <input name="kb_link" type="url" placeholder="https://drive.google.com/drive/folders/..." />
+        </label>
+        <label class="field field-wide">
+          <span>Display title (optional)</span>
+          <input name="kb_title" type="text" placeholder="e.g. Workshop Resources" maxlength="120" />
+        </label>
+      </div>
+
+      <div class="kb-preview">
+        <p class="muted small">🔮 Coming soon: AI-powered Q&A on your Drive docs. Participants ask questions, get answers from your resources.</p>
+      </div>
+
+      <div class="step-actions">
+        <button type="button" class="btn btn-ghost" onclick="prevStep(3)">← Back</button>
+        <button type="button" class="btn btn-primary" onclick="nextStep(5)">Review →</button>
+      </div>
+    </section>
+
+    <!-- Step 5: Review -->
+    <section class="wizard-step" data-step="5" id="step-5">
+      <header class="step-header">
+        <h2>Review & Create</h2>
+        <p class="muted">Verify everything looks good. Click a section to jump back and edit.</p>
+      </header>
+
+      <div class="review-grid">
+        <article class="review-card" data-step="1">
+          <header>
+            <h3>Basics</h3>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="goToStep(1)">Edit</button>
+          </header>
+          <dl class="review-details" id="review-basics">
+            <dt>Name</dt><dd id="review-name">—</dd>
+            <dt>Duration</dt><dd id="review-duration">—</dd>
+            <dt>Template</dt><dd id="review-template">Blank</dd>
+          </dl>
+        </article>
+
+        <article class="review-card" data-step="2">
+          <header>
+            <h3>Milestones</h3>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="goToStep(2)">Edit</button>
+          </header>
+          <dl class="review-details" id="review-milestones">
+            <dt>Count</dt><dd id="review-milestone-count">0</dd>
+            <dt>Total time</dt><dd id="review-total-time">0 min</dd>
+            <dt>Categories</dt><dd id="review-categories">—</dd>
+          </dl>
+          <ul class="review-milestone-list" id="review-milestone-items"></ul>
+        </article>
+
+        <article class="review-card" data-step="3">
+          <header>
+            <h3>Participant Form</h3>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="goToStep(3)">Edit</button>
+          </header>
+          <dl class="review-details" id="review-form">
+            <dt>Fields</dt><dd id="review-field-count">1</dd>
+            <dt>Required</dt><dd id="review-required-count">1</dd>
+          </dl>
+          <ul class="review-field-list" id="review-field-items"></ul>
+        </article>
+
+        <article class="review-card" data-step="4">
+          <header>
+            <h3>Resources</h3>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="goToStep(4)">Edit</button>
+          </header>
+          <dl class="review-details" id="review-kb">
+            <dt>Drive link</dt><dd id="review-kb-link">—</dd>
+            <dt>Title</dt><dd id="review-kb-title">—</dd>
+          </dl>
+        </article>
+      </div>
+
+      <div class="step-actions">
+        <button type="button" class="btn btn-ghost" onclick="prevStep(4)">← Back</button>
+        <button type="submit" class="btn btn-primary btn-lg">Create Workshop →</button>
+      </div>
+    </section>
+  </form>
+</main>{% endblock %}
+{% block scripts %}
+
+
+<!-- Field Type Modal -->
+<div class="modal" id="field-modal" role="dialog" aria-labelledby="field-modal-title" aria-hidden="true">
+  <div class="modal-backdrop" onclick="closeFieldModal()"></div>
+  <div class="modal-content">
+    <header>
+      <h3 id="field-modal-title">Add Field</h3>
+      <button class="modal-close" onclick="closeFieldModal()" aria-label="Close">×</button>
+    </header>
+    <form id="field-form">
+      <input type="hidden" name="edit_key" id="edit-key" />
+      <div class="field-group">
+        <label class="field">
+          <span>Field type <span class="required">*</span></span>
+          <select name="type" id="field-type" required>
+            <option value="text">Text</option>
+            <option value="email">Email</option>
+            <option value="dropdown">Dropdown</option>
+          </select>
+        </label>
+      </div>
+      <div class="field-group">
+        <label class="field">
+          <span>Label <span class="required">*</span></span>
+          <input name="label" id="field-label" required maxlength="80" placeholder="e.g. Company" />
+        </label>
+      </div>
+      <div class="field-group">
+        <label class="field">
+          <span>Placeholder</span>
+          <input name="placeholder" id="field-placeholder" placeholder="e.g. Acme Inc." />
+        </label>
+      </div>
+      <div class="field-group" id="field-options-wrapper" style="display:none;">
+        <label class="field">
+          <span>Options (comma-separated) <span class="required">*</span></span>
+          <textarea name="options" id="field-options" rows="3" placeholder="Option A, Option B, Option C"></textarea>
+        </label>
+      </div>
+      <div class="field-group">
+        <label class="checkbox-inline">
+          <input type="checkbox" name="required" id="field-required" />
+          <span>Required field</span>
+        </label>
+      </div>
+      <footer class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeFieldModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save field</button>
+      </footer>
+    </form>
+  </div>
+</div>
+
+<script>
+// ===== Wizard State =====
+let currentStep = 1;
+const totalSteps = 5;
+const milestoneCategories = [
+  {value: 'setup', label: 'Setup', icon: '🔧', color: '#7aa2ff'},
+  {value: 'learning', label: 'Learning', icon: '📚', color: '#44d39a'},
+  {value: 'hands_on', label: 'Hands-on', icon: '🛠️', color: '#e4c44a'},
+  {value: 'break', label: 'Break', icon: '☕', color: '#d68c44'},
+  {value: 'qa', label: 'Q&A', icon: '❓', color: '#b07fdb'},
+  {value: 'wrap_up', label: 'Wrap-up', icon: '✅', color: '#ec8898'},
+];
+
+// ===== Wizard Navigation =====
+function showStep(step) {
+  document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.wizard-progress li').forEach((li, i) => {
+    li.classList.toggle('active', i + 1 === step);
+    li.classList.toggle('completed', i + 1 < step);
+  });
+  document.getElementById('step-' + step).classList.add('active');
+  currentStep = step;
+  document.getElementById('current-step').value = step;
+}
+
+function nextStep(step) { showStep(step); }
+function prevStep(step) { showStep(step); }
+function goToStep(step) { showStep(step); }
+
+// ===== Duration Select{% endblock %}

@@ -1,51 +1,128 @@
 {% extends "base.html" %}
-{% block title %}Workshop Helmsman · Home{% endblock %}
+{% block title %}Workshop Helmsman — Run remote workshops without losing the room{% endblock %}
 {% block content %}
+<!-- Hero -->
 <section class="hero">
-  <h1>Run a remote workshop without losing the room.</h1>
-  <p class="lede">
-    Spin up a workshop, share two links, watch participants move through
-    milestones in real time. No installs, no accounts.
-  </p>
-  <div class="cta-row">
-    <a class="btn btn-primary" href="/admin/new">+ Create new workshop</a>
-    <a class="btn" href="/workshops">Browse local workshops</a>
-  </div>
-</section>
-
-<section class="grid two">
-  <div class="card">
-    <h2>Already have an admin link?</h2>
-    <p>The URL the facilitator sees was given by whoever ran the session. It looks like:</p>
-    <code class="url-example">/admin/<token></code>
-    <p>Open that URL directly to revisit the dashboard.</p>
-  </div>
-  <div class="card">
-    <h2>Try it instantly (seeded demo)</h2>
-    <p>A pre-seeded <strong>{{ demo_slug|e }}</strong> workshop is ready for poking.</p>
+  <div class="hero-inner">
+    <div class="hero-badge">⚓ Workshop Helmsman v0.2</div>
+    <h1>Run remote workshops<br>without losing the room.</h1>
+    <p class="lede">Create a workshop in seconds. Share one link with participants, keep the admin link for yourself. Watch progress in real time. No installs, no accounts, no friction.</p>
     <div class="cta-row">
-      <a class="btn" href="/admin/{{ demo_admin }}">Open demo dashboard</a>
-      <a class="btn" href="/w/{{ demo_slug }}">Join as participant</a>
+      <a class="btn btn-primary btn-lg" href="/console">Open Console →</a>
+      <a class="btn btn-lg" href="#features">See how it works</a>
     </div>
+    <p class="hero-note">Self-hosted · SQLite or Postgres · Runs on a single VM</p>
   </div>
 </section>
 
-<section class="card">
-  <h2>Recent local workshops</h2>
-  {% if workshops %}
-    <ul class="plain-list">
-      {% for w in workshops %}
-        <li>
-          <code>/admin/{{ w.admin_token }}</code>
-          ·
-          <a href="/w/{{ w.participant_slug }}"><code>/w/{{ w.participant_slug }}</code></a>
-          ·
-          <span class="muted">{{ w.name }}{% if w.archived %} · archived{% elif w.is_expired() %} · expired{% endif %}</span>
-        </li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p class="muted">No workshops yet. Create the first one.</p>
-  {% endif %}
+<!-- Trust / Social Proof -->
+<section class="trust-bar" aria-label="Used by teams">
+  <div class="trust-item">
+    <span class="trust-number">100+</span>
+    <span class="trust-label">participants per session</span>
+  </div>
+  <div class="trust-item">
+    <span class="trust-number">4s</span>
+    <span class="trust-label">polling latency</span>
+  </div>
+  <div class="trust-item">
+    <span class="trust-number">0</span>
+    <span class="trust-label">external dependencies</span>
+  </div>
+  <div class="trust-item">
+    <span class="trust-number">1</span>
+    <span class="trust-label">binary to deploy</span>
+  </div>
+</section>
+
+<!-- Features -->
+<section id="features" class="features">
+  <div class="section-header">
+    <h2>Built for facilitators who run real workshops</h2>
+    <p>Not a generic meeting tool. Designed for the rhythm of hands-on sessions.</p>
+  </div>
+  
+  <div class="feature-grid">
+    <article class="feature-card">
+      <div class="feature-icon">📋</div>
+      <h3>Draggable agenda builder</h3>
+      <p>Reorder milestones with drag-and-drop. Add descriptions, time estimates, and facilitator tips. Templates for common formats (4-phase, 6-phase sprint, quickstart).</p>
+    </article>
+    
+    <article class="feature-card">
+      <div class="feature-icon">👥</div>
+      <h3>Two links, zero confusion</h3>
+      <p>One participant link for attendees. One admin link for you. Participants join, fill a quick form, and land on their personal tracker. You watch the room from your dashboard.</p>
+    </article>
+    
+    <article class="feature-card">
+      <div class="feature-icon">📊</div>
+      <h3>Live room intelligence</h3>
+      <p>Real-time leaderboard, per-milestone completion bars, cohort progress stack, help flags with status pills. See who's stuck before they ask.</p>
+    </article>
+    
+    <article class="feature-card">
+      <div class="feature-icon">🎛️</div>
+      <h3>Facilitator superpowers</h3>
+      <p>Broadcast pinned announcements. Pause the room. Advance everyone or selected people to the next milestone. Drag to reorder the agenda live.</p>
+    </article>
+    
+    <article class="feature-card">
+      <div class="feature-icon">🆘</div>
+      <h3>Help flags that actually help</h3>
+      <p>Participants flag blockers. Optional LLM suggests a fix before it hits your dashboard. You approve, edit, or dismiss. Status: open → on_hold → resolved.</p>
+    </article>
+    
+    <article class="feature-card">
+      <div class="feature-icon">📥</div>
+      <h3>Export everything</h3>
+      <p>One-click CSV with participants × milestones, form answers, help requests, timestamps. Ready for reports, certificates, or follow-up.</p>
+    </article>
+  </div>
+</section>
+
+<!-- How it works -->
+<section class="how-it-works">
+  <div class="section-header">
+    <h2>From zero to running in 60 seconds</h2>
+  </div>
+  <ol class="steps">
+    <li>
+      <span class="step-number">1</span>
+      <div>
+        <h3>Open the Console</h3>
+        <p>Visit your secret <code>/console</code> URL. No login — the URL <em>is</em> the key.</p>
+      </div>
+    </li>
+    <li>
+      <span class="step-number">2</span>
+      <div>
+        <h3>Create a workshop</h3>
+        <p>Name it, pick a template (or build custom), drag milestones into order, set the participant form fields.</p>
+      </div>
+    </li>
+    <li>
+      <span class="step-number">3</span>
+      <div>
+        <h3>Share two links</h3>
+        <p><strong>Admin link</strong> for you (bookmark it). <strong>Participant link</strong> for attendees — paste into Slack, email, calendar invite.</p>
+      </div>
+    </li>
+    <li>
+      <span class="step-number">4</span>
+      <div>
+        <h3>Run the session</h3>
+        <p>Attendees join, fill the form, track milestones. You watch the dashboard, broadcast, advance, help. Done.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<!-- Footer CTA -->
+<section class="cta-footer">
+  <h2>Ready to run your first workshop?</h2>
+  <p>Self-hosted. No accounts. No monthly fees. Just deploy and go.</p>
+  <a class="btn btn-primary btn-lg" href="/console">Open Console →</a>
+  <p class="cta-note">Bookmark <code>/console</code> — it's your master key.</p>
 </section>
 {% endblock %}

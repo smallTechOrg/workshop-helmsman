@@ -1,62 +1,89 @@
-# Capabilities
+# Capabilities — Workshop Helmsman (v0.1)
 
-Phased list. Each phase ships behind a Gate command that proves the slice works
-end-to-end before the next phase begins.
+Phased list. Each phase ships behind a Gate command that proves the slice works end-to-end before the next phase begins.
 
-## Phase 1 — Single-workshop happy path (this build)
+---
 
-- Landing page with two entry points: "Facilitator: create a new workshop" and
-  "Workshop admin: enter admin token".
-- `POST /admin/new` creates a workshop, stores `admin_token` + `participant_slug`,
-  redirects the facilitator to the dashboard.
-- Admin dashboard is **read-only** in this phase but already shows:
-  - participant grid (name, % complete, last activity, help-needed badge),
-  - live help-requests panel,
-  - workshop metadata (name, expiry, milestones).
-- A seeded **DEMO** workshop is created on first boot so a tester can click straight in.
-- Participants join via `/w/<participant_slug>`, are prompted for a name on first visit,
-  then land on their tracker.
-- Participants can complete milestones and submit help requests.
-- Live refresh: `/w/<participant_slug>/data?since=<ts>` returns a JSON snapshot used by
-  the tracker for leaderboard updates and by the admin dashboard for participant
-  refresh. Polled every 3s.
-- Real expiry enforcement: if `expires_at < now()` and `archive_after_expiry` is on, the
-  participant page renders a friendly "this workshop has ended" page. The admin route
-  always works until a future archive feature deletes the row.
-- **Clearly-labelled stubs** (not silent failures):
-  - `GET /admin/<token>/export.csv` → returns `text/plain` body "Coming in Phase 2".
-  - `POST /admin/<token>/clone` → returns `text/plain` body "Coming in Phase 2".
-  - `GET /admin/<token>/edit` → returns `text/plain` body "Coming in Phase 2".
+## Phase 1 — Core Path (this improvement cycle)
 
-## Phase 2 — Workshop config + export (this build)
+**The single most important user journey:** Facilitator creates workshop from template → shares participant link → participants join and fill form → facilitator watches live dashboard → participants complete milestones → facilitator exports CSV.
 
-- ✅ Edit milestones post-creation (`GET/POST /admin/<token>/edit`): form
-  pre-filled with current name, milestone list (`title: description` textarea),
-  and TTL in hours. POST writes `workshop.name`, `workshop.milestone_config`
-  (JSON), and `workshop.expires_at`. Existing `milestone_completion.milestone_title`
-  rows are preserved unchanged.
-- ✅ Real CSV export (`GET /admin/<token>/export.csv`): `Content-Type: text/csv`,
-  `Content-Disposition: attachment; filename="workshop-<name>-<ts>.csv"`. Columns:
-  `participant_name, joined_at, milestone_title, completed_at, help_message,
-  help_created_at`. Left-join all four tables. Header row always present.
-  Participants with no completions produce a row with only name/timestamp.
-- ✅ Clone-this-workshop (`POST /admin/<token>/clone`): copies `milestone_config`,
-  issues fresh `admin_token` + `participant_slug`, sets TTL to 8 h from now.
-  Redirects 303 to the new admin dashboard.
-- ✅ Copy-to-clipboard on admin dashboard: participant URL shown with a
-  "Copy link" button; writes full URL to clipboard and gives 2 s "Copied!"
-  feedback. Graceful fallback to text selection.
+**What's being improved over the existing v0.1:**
 
-## Phase 3
+| Area | Improvement |
+|------|-------------|
+| **Facilitator Dashboard** | Visual polish: stat cards, status pills, real-time feel with live progress bars, per-milestone completion table, cohort stacked bar, paginated help flags with status chips |
+| **Participant Join** | Instant validation on name field, better mobile UX (larger touch targets, proper keyboard types), inline error/success states |
+| **Agenda/Milestone Management** | Drag-and-drop reorder (Phase 1: up/down buttons), inline edit title/description, milestone order persisted per workshop |
+| **Form Builder** | Visual field editor (add/remove/reorder fields), field types: text/dropdown, required toggle, template picker |
+| **Broadcast Messaging** | Facilitator → all participants: pinned banner on tracker with dismiss, Markdown-lite rendering |
+| **Milestone Controls** | "Advance all to next", "Advance selected", "Pause workshop" (locks completions), per-participant override |
+| **Export** | One-click CSV with all data: participants × milestones + form answers + help requests |
 
-- Multi-workshop archive view on the landing page (list of past + active workshops).
-- Per-cohort grouping / filtering on the archive view.
-- Finer-grained admin permissions (per-workshop token rotation, archival, restore).
-- UI polish, tests, CI.
+**Clearly-labelled stubs (Phase 2+):**
+- Multi-workshop concurrent sessions (dashboard switcher)
+- Breakout rooms / multiple facilitators per workshop
+- Email/Slack notifications on help flags
+- Custom domains per workshop (e.g. `acme.workshop.smalltech.in`)
+- Participant messaging (chat between participants)
+
+---
+
+## Phase 1 — Surfaces built
+
+1. `GET /admin/new` → form: workshop name, pick agenda template (or inline milestones), pick form template (or inline fields), TTL hours
+2. `POST /admin/new` → creates workshop, returns redirect to `/admin/<token>`
+3. `GET /admin/<token>` → **polished dashboard**: stat cards, participant table with progress bars + milestone chips, per-milestone completion stats, cohort stacked bar, help flags with status pills + inline status change, broadcast message composer, milestone controls (advance all, pause, reorder)
+4. `GET /w/<slug>` → join page: workshop name + form fields, instant validation, mobile-optimized, submit → cookie + redirect
+5. `GET /w/<slug>/me` → participant tracker: milestone checklist with mark-complete, progress bar, leaderboard (top 50 + toggle), **broadcast banner**, my help requests with status pills
+6. `GET /w/<slug>/data` → JSON: milestones, my progress, leaderboard, help requests, **broadcast message**, **workshop_paused flag**, form schema
+7. `GET /admin/<token>/data` → JSON: all participants + progress, per-milestone stats, cohort bar, help requests, broadcast message, workshop_paused, milestone order
+8. `POST /w/<slug>/me/complete/<mid>` → mark milestone done (idempotent; blocked if workshop_paused)
+9. `POST /w/<slug>/me/help` → create help request (two-step: preview → commit; LLM suggestion stub returns empty)
+10. `POST /admin/<token>/broadcast` → set/clear broadcast message
+11. `POST /admin/<token>/pause` → toggle workshop_paused
+12. `POST /admin/<token>/advance-all` → advance all participants to next incomplete milestone
+13. `POST /admin/<token>/advance-selected` → advance selected participant IDs
+14. `POST /admin/<token>/milestones/reorder` → persist new milestone order
+15. `GET /admin/<token>/export.csv` → streams full CSV
+16. `GET /healthz` → `{"status":"ok","db":"ok"}`
+
+---
+
+## Phase 2 — Template Library & Multi-Session (future)
+
+- `/admin/templates` — list/create/edit/delete agenda templates & form templates
+- `/admin/new` and `/admin/<token>/edit` include template pickers
+- Editing a template never mutates existing workshops (snapshots on create)
+- `/workshops` archive page with search/filter, per-session drill-down
+- Cohort comparison across sessions of same template
+
+---
+
+## Phase 3 — AI Assist & Notifications (future)
+
+- Optional Gemini via OpenRouter for help-desk pre-resolution
+- Facilitator clicks "suggest reply" on help flag → LLM returns short actionable fix → facilitator edits/sends
+- Email/Slack webhook notifications when help flags accumulate
+- Graceful degradation: no API key = feature silently disabled
+
+---
+
+## Phase 4 — Scale & Multi-tenancy (future)
+
+- PostgreSQL backend (swap SQLite via `DATABASE_URL`)
+- Multiple concurrent workshops
+- Per-workshop facilitator tokens (rotate, revoke)
+- Custom domains / subdomains
+- Team/organization grouping
+
+---
 
 ## Always-on cross-cutting concerns (any phase)
 
-- Platform-agnostic URLs.
-- Mobile-responsive CSS (grid/flex + viewport meta).
-- Health probe at `/healthz` returning JSON.
-- No secrets required to boot (`.env.example` is intentionally empty).
+- Platform-agnostic URLs (no hardcoded host/port)
+- Mobile-responsive CSS (grid/flex + viewport meta)
+- Health probe at `/healthz` returning JSON
+- No secrets required to boot (`.env.example` intentionally empty for core flow)
+- Single CSS file, single JS file, no bundler, no node_modules
+- Audit trail: every milestone completion, help request, facilitator action timestamped

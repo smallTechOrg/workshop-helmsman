@@ -1,16 +1,34 @@
 {% extends "base.html" %}
 {% block title %}{{ workshop.name }} · Tracker{% endblock %}
 {% block content %}
+
+{# Broadcast banner - shows if there's an active broadcast #}
+{% if broadcast %}
+<div class="broadcast-banner" id="broadcast-banner">
+  <span class="broadcast-icon" aria-hidden="true">📢</span>
+  <div class="broadcast-content">
+    <div class="broadcast-title">Announcement</div>
+    <div class="broadcast-message">{{ broadcast }}</div>
+  </div>
+  <button class="broadcast-dismiss" type="button" aria-label="Dismiss announcement">Dismiss</button>
+</div>
+{% endif %}
+
 <section class="card">
-  <h1>{{ workshop.name }}</h1>
+  <header class="card-header">
+    <h1>{{ workshop.name }}</h1>
+  </header>
   <p class="muted">Hi <strong>{{ participant.name }}</strong>. Mark each milestone as you finish it. The leaderboard auto-refreshes.</p>
 </section>
 
 <section class="grid two">
   <div class="card">
     <h2>Your milestones</h2>
-    <div class="progress">
-      <div class="bar"><div id="my-bar" class="bar-fill" style="width: {{ (completed_ids|length * 100 / (milestones|length or 1))|round(0, 'floor') }}%"></div></div>
+
+    <div class="progress" aria-live="polite">
+      <div class="bar" role="progressbar" aria-valuenow="{{ (completed_ids|length * 100 / (milestones|length or 1))|round(0, 'floor') }}" aria-valuemin="0" aria-valuemax="100" aria-label="Overall progress">
+        <div id="my-bar" class="bar-fill" style="width: {{ (completed_ids|length * 100 / (milestones|length or 1))|round(0, 'floor') }}%"></div>
+      </div>
       <small class="muted">
         <span id="my-progress-text">{{ completed_ids|length }}</span> / {{ milestones|length }} complete
         · <span id="my-progress-pct">{{ (completed_ids|length * 100 / (milestones|length or 1))|round(0, 'floor') }}</span>%
@@ -19,21 +37,23 @@
 
     <ol class="milestones" id="milestones-list">
       {% for m in milestones %}
-        <li class="milestone {% if m.id in completed_ids %}milestone-done{% endif %}" data-mid="{{ m.id }}">
+        <li class="milestone {% if m.id in completed_ids %}milestone-done{% elif loop.first and completed_ids|length == 0 %}milestone-current{% endif %}" data-mid="{{ m.id }}">
           <div class="milestone-body">
-            <strong>{{ m.title }}</strong>
-            {% if m.description %}<div class="muted">{{ m.description }}</div>{% endif %}
+            <strong class="milestone-title">{{ m.title }}</strong>
+            {% if m.description %}<div class="milestone-desc muted">{{ m.description }}</div>{% endif %}
             {% if m.id in completed_ids %}
-              <small class="muted">completed {{ completed_ids[m.id].strftime('%H:%M:%S UTC') }}</small>
+              <small class="milestone-time muted">completed {{ completed_ids[m.id].strftime('%H:%M:%S UTC') }}</small>
             {% endif %}
           </div>
-          {% if m.id in completed_ids %}
-            <span class="chip chip-done">✓ done</span>
-          {% else %}
-            <form method="post" action="/w/{{ workshop.participant_slug }}/me/complete/{{ m.id }}">
-              <button class="btn" type="submit">Mark complete</button>
-            </form>
-          {% endif %}
+          <div class="milestone-actions">
+            {% if m.id in completed_ids %}
+              <span class="chip chip-done" aria-label="Completed">✓ Done</span>
+            {% else %}
+              <form method="post" action="/w/{{ workshop.participant_slug }}/me/complete/{{ m.id }}" class="milestone-complete-form">
+                <button class="btn btn-primary" type="submit"{% if paused %} disabled{% endif %}>Mark complete</button>
+              </form>
+            {% endif %}
+          </div>
         </li>
       {% endfor %}
     </ol>
@@ -48,7 +68,7 @@
             {{ row.name }}{% if row.is_me %} <small class="muted">(you)</small>{% endif %}
           </span>
           <span class="leaderboard-progress">
-            <span class="bar small"><div class="bar-fill" style="width: {{ row.pct }}%"></div></span>
+            <span class="bar small" role="progressbar" aria-valuenow="{{ row.pct }}" aria-valuemin="0" aria-valuemax="100" aria-label="{{ row.name }} progress"><div class="bar-fill" style="width: {{ row.pct }}%"></div></span>
             <small class="muted">{{ row.completed_count }} / {{ row.total }}</small>
           </span>
         </li>
@@ -61,20 +81,35 @@
   </div>
 </section>
 
+{# My Answers Panel #}
+{% if form_answers and form_answers|length > 0 %}
+<section class="card">
+  <h2>Your answers</h2>
+  <dl class="kv">
+    {% for key, value in form_answers.items() %}
+      {% if value %}
+        <dt>{{ key.replace('_', ' ').title() }}</dt>
+        <dd>{{ value }}</dd>
+      {% endif %}
+    {% endfor %}
+  </dl>
+</section>
+{% endif %}
+
 <section class="card">
   <h2>Stuck? Get the room's attention.</h2>
   <p class="muted">Type what's blocking you. We'll try to suggest a fix before it hits the facilitator.</p>
 
   {% if pending_message %}
     {# Two-step flow: show LLM suggestion before saving #}
-    <div class="help-confirm">
+    <div class="help-confirm" id="help-confirm">
       <h3>Before we send — here's a possible fix</h3>
       <blockquote class="llm-suggestion">
         <strong>Suggested:</strong> {{ pending_suggestion or "(no suggestion available)" }}
       </blockquote>
       <details>
         <summary>Your message (click to edit)</summary>
-        <form method="post" action="/w/{{ workshop.participant_slug }}/me/help" class="stack mt">
+        <form method="post" action="/w/{{ workshop.participant_slug }}/me/help" class="stack mt" id="help-commit-form">
           <input type="hidden" name="step" value="commit" />
           <textarea name="message" rows="3" maxlength="2000">{{ pending_message }}</textarea>
           <div class="row-actions">
@@ -85,10 +120,12 @@
       </details>
     </div>
   {% else %}
-    <form method="post" action="/w/{{ workshop.participant_slug }}/me/help" class="stack">
+    <form method="post" action="/w/{{ workshop.participant_slug }}/me/help" class="stack" id="help-preview-form">
       <input type="hidden" name="step" value="preview" />
       <textarea name="message" rows="3" maxlength="2000"
-                placeholder="e.g. My python -m src says no module named src — tried venv reinstall already."></textarea>
+                placeholder="e.g. My python -m src says no module named src — tried venv reinstall already."
+                aria-describedby="help-hint"></textarea>
+      <span id="help-hint" class="field-hint">Press Enter or click "Get a suggestion" to see a possible fix before sending.</span>
       <button class="btn btn-primary" type="submit">Get a suggestion</button>
     </form>
   {% endif %}
@@ -118,7 +155,6 @@
     {% endfor %}
   </ul>
 </section>
-
 {% endblock %}
 {% block scripts %}
 <script src="/static/app.js"></script>
@@ -145,6 +181,44 @@
         }
       });
     }
+  })();
+
+  // Broadcast banner dismiss
+  (function () {
+    var banner = document.getElementById('broadcast-banner');
+    var dismissBtn = banner ? banner.querySelector('.broadcast-dismiss') : null;
+    if (banner && dismissBtn) {
+      dismissBtn.addEventListener('click', function () {
+        banner.style.animation = 'slideUp 200ms ease forwards';
+        setTimeout(function () { banner.remove(); }, 200);
+      });
+    }
+  })();
+
+  // Optimistic UI for milestone completion
+  (function () {
+    var forms = document.querySelectorAll('.milestone-complete-form');
+    forms.forEach(function (form) {
+      form.addEventListener('submit', function (e) {
+        var btn = form.querySelector('button[type="submit"]');
+        var milestone = form.closest('.milestone');
+        if (btn && milestone) {
+          // Optimistic update - immediately show as done
+          btn.disabled = true;
+          btn.textContent = 'Saving...';
+          milestone.classList.add('milestone-done');
+          milestone.classList.remove('milestone-current');
+        }
+        // Form submits normally, page reloads with correct state
+      });
+    });
+  })();
+
+  // Add slideUp animation for broadcast dismiss
+  (function () {
+    var style = document.createElement('style');
+    style.textContent = '@keyframes slideUp { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-10px); } }';
+    document.head.appendChild(style);
   })();
 </script>
 {% endblock %}

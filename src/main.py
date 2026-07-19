@@ -30,6 +30,7 @@ from .db import get_db, init_db, session_scope
 from .models import (
     DEFAULT_AGENDA_TEMPLATES,
     DEFAULT_FORM_SCHEMA,
+    DEFAULT_MILESTONE_CONFIG,
     HELP_STATUSES,
     AgendaTemplate,
     FormTemplate,
@@ -526,7 +527,7 @@ def landing(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             expires_at=now + timedelta(days=1),
             admin_token="demo-workshop-admin-token",
             participant_slug="demo-walkthrough",
-            milestone_config=json.dumps(milestones),
+            milestone_config_json=json.dumps(milestones),
             archived=False,
             form_schema_json=json.dumps(DEFAULT_FORM_SCHEMA),
         )
@@ -536,6 +537,16 @@ def landing(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     recent = (
         db.query(Workshop).order_by(desc(Workshop.created_at)).limit(10).all()
     )
+    # Category colors for milestone badges
+    category_colors = {
+        'setup': '#7aa2ff',
+        'learning': '#44d39a',
+        'hands_on': '#e4c44a',
+        'break': '#d68c44',
+        'assessment': '#b07fdb',
+        'wrap_up': '#ec8898',
+    }
+
     return _render(
         request,
         "landing.html",
@@ -640,7 +651,7 @@ def admin_new_create(
         expires_at=now + timedelta(hours=ttl_hours),
         admin_token=generate_admin_token(),
         participant_slug=generate_participant_slug(),
-        milestone_config=json.dumps(parsed),
+        milestone_config_json=json.dumps(parsed),
         archived=False,
         form_template_id=template_obj.id if template_obj else None,
         form_schema_json=json.dumps(fields),
@@ -818,6 +829,15 @@ def admin_dashboard(
         "total": total,
         "pct": int(round(100 * total_done / max(total * max(1, max_milestones), 1))),
     }
+    # Define category colors for milestone badges
+    category_colors = {
+        'setup': '#7aa2ff',
+        'learning': '#44d39a',
+        'hands_on': '#e4c44a',
+        'break': '#d68c44',
+        'assessment': '#b07fdb',
+        'wrap_up': '#ec8898',
+    }
     return _render(
         request,
         "admin_dashboard.html",
@@ -831,6 +851,7 @@ def admin_dashboard(
         help_statuses=list(HELP_STATUSES),
         help_page=page,
         has_more_help=has_more_help,
+        category_colors=category_colors,
     )
 
 
@@ -1046,7 +1067,7 @@ def admin_clone(
         expires_at=now + timedelta(hours=DEFAULT_TTL_HOURS),
         admin_token=generate_admin_token(),
         participant_slug=generate_participant_slug(),
-        milestone_config=json.dumps(src_milestones),
+        milestone_config_json=json.dumps(src_milestones),
         archived=False,
         # Snapshot the form schema; do NOT carry the template id (a clone
         # is a fresh workshop — if the user later edits the snapshot, we
@@ -1688,3 +1709,123 @@ def admin_form_template_apply(
     return RedirectResponse(url=f"/admin/{admin_token}", status_code=303)
 
 
+
+
+# --- Console: workshop creation wizard ---
+
+@app.get("/console", response_class=HTMLResponse)
+def console_index(request: Request) -> HTMLResponse:
+    """Redirect to home page for now."""
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.get("/console/workshop/new", response_class=HTMLResponse)
+def console_workshop_new_get(
+    request: Request, db: Session = Depends(get_db)
+) -> HTMLResponse:
+    """Show the workshop creation wizard."""
+    # Get agenda templates for the dropdown
+    agenda_templates = (
+        db.query(AgendaTemplate)
+        .order_by(AgendaTemplate.created_at.asc())
+        .all()
+    )
+    return _render(
+        request,
+        "console_workshop_new.html",
+        agenda_templates=agenda_templates,
+    )
+
+
+@app.post("/console/workshop/new")
+def console_workshop_new_post(
+    request: Request,
+    name: str = Form(""),
+    ttl_hours: str = Form(""),  # note: comes as string because of custom field
+    ttl_hours_custom: str = Form(""),
+    agenda_template_id: str = Form(""),
+    kb_link: str = Form(""),
+    kb_title: str = Form(""),
+    milestones_json: str = Form(""),
+    fields_json: str = Form(""),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Process the wizard form and create a workshop."""
+    # Validate name
+    name = (name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Workshop name is required")
+
+    # Determine TTL (time to live) in hours
+    # If custom is selected, use the custom value; otherwise use the selected preset
+    try:
+        if ttl_hours == "custom":
+            hours = int(ttl_hours_custom or "8")
+        else:
+            hours = int(ttl_hours or "8")
+    except ValueError:
+        hours = 8
+    # Clamp between 1 and 168 hours (1 week)
+    hours = max(1, min(168, hours))
+
+    # Parse milestones JSON (if provided) or use default from template
+    parsed_milestones: list[dict]
+    if agenda_template_id and agenda_template_id.isdigit():
+        # Load the selected agenda template
+        agenda_tpl = (
+            db.query(AgendaTemplate)
+            .filter(AgendaTemplate.id == int(agenda_template_id))
+            .first()
+        )
+        if agenda_tpl is not None:
+            template_milestones = agenda_tpl.milestones()
+            if template_milestones:
+                # Assign stable ids
+                parsed_milestones = [
+                    {"id": f"m{idx}", **m}
+                    for idx, m in enumerate(template_milestones)
+                ]
+            else:
+                parsed_milestones = json.loads(milestones_json) if milestones_json else []
+        else:
+            parsed_milestones = json.loads(milestones_json) if milestones_json else []
+    else:
+        parsed_milestones = json.loads(milestones_json) if milestones_json else []
+
+    # If no milestones provided, use default
+    if not parsed_milestones:
+        parsed_milestones = [
+            {"id": f"m{i}", **m}
+            for i, m in enumerate(DEFAULT_MILESTONE_CONFIG)
+        ]
+
+    # Parse fields JSON
+    try:
+        fields = json.loads(fields_json) if fields_json else []
+    except Exception:
+        fields = []
+    fields = _ensure_display_name_field(fields)
+    if not fields:
+        fields = list(DEFAULT_FORM_SCHEMA)
+
+    # Create the workshop
+    now = _utcnow()
+    workshop = Workshop(
+        name=name,
+        created_at=now,
+        expires_at=now + timedelta(hours=hours),
+        admin_token=generate_admin_token(),
+        participant_slug=generate_participant_slug(),
+        milestone_config_json=json.dumps(parsed_milestones),
+        archived=False,
+        form_template_id=None,  # We are not using templates for now; the snapshot is stored directly
+        form_schema_json=json.dumps(fields),
+        kb_link=kb_link or None,
+        kb_title=kb_title or None,
+    )
+    db.add(workshop)
+    db.commit()
+    db.refresh(workshop)
+
+    # Redirect to the admin dashboard for the new workshop
+    return RedirectResponse(url=f"/admin/{workshop.admin_token}", status_code=303)
