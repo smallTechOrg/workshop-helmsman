@@ -33,6 +33,7 @@ import { MilestoneList } from "@/components/participant/MilestoneList";
 import { Leaderboard } from "@/components/participant/Leaderboard";
 import { HelpPanel } from "@/components/participant/HelpPanel";
 import { PersonalLinkCallout } from "@/components/participant/PersonalLinkCallout";
+import { BroadcastBanner } from "@/components/participant/BroadcastBanner";
 
 function TrackerSkeleton() {
   return (
@@ -325,9 +326,12 @@ function TrackerInner() {
         </div>
       </header>
 
+      <BroadcastBanner broadcast={data.broadcast} />
+
       {data.workshop.paused && (
         <div
           role="status"
+          data-testid="paused-banner"
           className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm font-medium text-amber-800"
         >
           The facilitator paused the workshop — completions are locked for a moment.

@@ -246,6 +246,37 @@ export interface HelpQueueItem {
   answers: HelpAnswer[];
 }
 
+export interface BroadcastInfo {
+  id: number;
+  message_md: string;
+  created_at: string;
+}
+
+export interface StuckParticipant {
+  participant_id: number;
+  name: string;
+  minutes_inactive: number;
+  current_milestone_id: number | null;
+}
+
+export interface Bottleneck {
+  milestone_id: number;
+  title: string;
+  waiting_count: number;
+}
+
+export interface DashboardAlerts {
+  stuck: StuckParticipant[];
+  bottleneck: Bottleneck | null;
+}
+
+export interface DashboardPulse {
+  pace_ratio: number;
+  on_track_pct: number;
+  open_help_count: number;
+  projected_finish_at: string | null;
+}
+
 export interface DashboardPayload {
   changed: true;
   version: number;
@@ -262,9 +293,9 @@ export interface DashboardPayload {
   distribution: DistributionBucket[];
   participants: DashboardParticipant[];
   help_queue: HelpQueueItem[];
-  broadcast: unknown | null;
-  alerts: unknown | null;
-  pulse: unknown | null;
+  broadcast: BroadcastInfo | null;
+  alerts: DashboardAlerts | null;
+  pulse: DashboardPulse | null;
   spend: unknown | null;
 }
 
@@ -304,6 +335,134 @@ export function facilitatorResolveHelp(
     `/api/f/${encodeURIComponent(adminToken)}/help/${helpRequestId}/resolve`,
     { method: "POST", body: JSON.stringify({}) },
   );
+}
+
+// ---------------------------------------------------------------------------
+// Facilitator command surface (Phase 2)
+// ---------------------------------------------------------------------------
+
+export function facilitatorBroadcast(
+  adminToken: string,
+  messageMd: string,
+): Promise<{ broadcast: BroadcastInfo; version: number; undoable_action_id: number }> {
+  return request(`/api/f/${encodeURIComponent(adminToken)}/broadcast`, {
+    method: "POST",
+    body: JSON.stringify({ message_md: messageMd }),
+  });
+}
+
+export function facilitatorClearBroadcast(
+  adminToken: string,
+): Promise<{ version: number }> {
+  return request(`/api/f/${encodeURIComponent(adminToken)}/broadcast/clear`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function facilitatorPause(
+  adminToken: string,
+  paused: boolean,
+): Promise<{ version: number; undoable_action_id: number }> {
+  return request(`/api/f/${encodeURIComponent(adminToken)}/pause`, {
+    method: "POST",
+    body: JSON.stringify({ paused }),
+  });
+}
+
+export function facilitatorAdvance(
+  adminToken: string,
+  milestoneId: number,
+  participantIds: number[] | null,
+): Promise<{ version: number; undoable_action_id: number; affected_count: number }> {
+  return request(`/api/f/${encodeURIComponent(adminToken)}/milestones/advance`, {
+    method: "POST",
+    body: JSON.stringify({
+      milestone_id: milestoneId,
+      participant_ids: participantIds,
+    }),
+  });
+}
+
+export function facilitatorReorder(
+  adminToken: string,
+  milestoneIds: number[],
+): Promise<{ version: number }> {
+  return request(`/api/f/${encodeURIComponent(adminToken)}/milestones/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ milestone_ids: milestoneIds }),
+  });
+}
+
+export function facilitatorAddMilestone(
+  adminToken: string,
+  body: MilestoneInput,
+): Promise<{ version: number }> {
+  return request(`/api/f/${encodeURIComponent(adminToken)}/milestones`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function facilitatorEditMilestone(
+  adminToken: string,
+  milestoneId: number,
+  body: Partial<MilestoneInput>,
+): Promise<{ version: number }> {
+  return request(
+    `/api/f/${encodeURIComponent(adminToken)}/milestones/${milestoneId}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+}
+
+export function facilitatorDeleteMilestone(
+  adminToken: string,
+  milestoneId: number,
+): Promise<{ version: number }> {
+  return request(
+    `/api/f/${encodeURIComponent(adminToken)}/milestones/${milestoneId}`,
+    { method: "DELETE" },
+  );
+}
+
+export function facilitatorUndo(
+  adminToken: string,
+  actionId: number,
+): Promise<{ version: number }> {
+  return request(`/api/f/${encodeURIComponent(adminToken)}/undo/${actionId}`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export interface AuditAction {
+  id: number;
+  actor: string;
+  action: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+  undone_at: string | null;
+}
+
+export function facilitatorAudit(
+  adminToken: string,
+  opts: { beforeId?: number; limit?: number } = {},
+): Promise<{ actions: AuditAction[]; has_more: boolean }> {
+  const qs = new URLSearchParams();
+  if (opts.beforeId !== undefined) qs.set("before_id", String(opts.beforeId));
+  if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return request(`/api/f/${encodeURIComponent(adminToken)}/audit${suffix}`);
+}
+
+export function facilitatorSettings(
+  adminToken: string,
+  stuckMinutes: number,
+): Promise<{ version: number }> {
+  return request(`/api/f/${encodeURIComponent(adminToken)}/settings`, {
+    method: "PATCH",
+    body: JSON.stringify({ stuck_minutes: stuckMinutes }),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +529,7 @@ export interface StatePayload {
   milestones: MilestoneMeta[];
   me: TrackerMe;
   leaderboard: LeaderboardRow[];
-  broadcast: unknown | null;
+  broadcast: BroadcastInfo | null;
   help_requests: TrackerHelpRequest[];
 }
 

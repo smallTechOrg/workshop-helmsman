@@ -11,28 +11,47 @@ import {
 import { useSearchParams } from "next/navigation";
 import {
   ApiError,
+  facilitatorAdvance,
   facilitatorAnswerHelp,
+  facilitatorBroadcast,
+  facilitatorClearBroadcast,
   facilitatorDashboard,
+  facilitatorPause,
   facilitatorResolveHelp,
+  facilitatorUndo,
   facilitatorWorkshop,
   type DashboardPayload,
   type FacilitatorWorkshopPayload,
   type HelpQueueItem,
 } from "@/lib/api";
 import { usePoll } from "@/lib/poll";
-import { useNowTick } from "@/lib/format";
+import { useNowTick, cn } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { ConnectionIndicator } from "@/components/ui/ConnectionIndicator";
 import { WorkshopStatusBadge } from "@/components/ui/Badge";
-import { StubAction, StubBadge, StubCard } from "@/components/ui/StubBadge";
+import { StubAction } from "@/components/ui/StubBadge";
+import { ConfirmDialog, useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { StatCards } from "@/components/facilitator/StatCards";
 import { MilestoneBars } from "@/components/facilitator/MilestoneBars";
 import { DistributionChart } from "@/components/facilitator/DistributionChart";
 import { ParticipantTable } from "@/components/facilitator/ParticipantTable";
 import { HelpQueue } from "@/components/facilitator/HelpQueue";
+import {
+  ActiveBroadcastBar,
+  BroadcastAction,
+  BroadcastComposer,
+} from "@/components/facilitator/BroadcastPanel";
+import { UndoBanner, type UndoState } from "@/components/facilitator/UndoBanner";
+import { PauseControl } from "@/components/facilitator/PauseControl";
+import { MilestoneManageModal } from "@/components/facilitator/MilestoneManageModal";
+import { AuditPanel } from "@/components/facilitator/AuditPanel";
+import { StuckCard, BottleneckCard } from "@/components/facilitator/AlertsCards";
+import { PulseCard } from "@/components/facilitator/PulseCard";
+import { SettingsControl } from "@/components/facilitator/SettingsControl";
 
 function DashboardSkeleton() {
   return (
@@ -225,6 +244,140 @@ function DashboardInner() {
     return best;
   }, [data]);
 
+  // ---- broadcast composer + undo toast -------------------------------------
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [broadcastSubmitting, setBroadcastSubmitting] = useState(false);
+  const [clearingBroadcast, setClearingBroadcast] = useState(false);
+  const [undo, setUndo] = useState<UndoState | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+
+  const issueUndo = (actionId: number, label: string) => {
+    setUndo({ actionId, label, expiresAt: Date.now() + 30000 });
+  };
+
+  const onSendBroadcast = async (messageMd: string): Promise<boolean> => {
+    if (!token) return false;
+    setBroadcastSubmitting(true);
+    try {
+      const res = await facilitatorBroadcast(token, messageMd);
+      pollNow();
+      issueUndo(res.undoable_action_id, "Broadcast sent");
+      return true;
+    } catch (err) {
+      toast.show(
+        err instanceof ApiError
+          ? `Couldn't send that — ${err.message}`
+          : "Couldn't send that — check your connection and try again.",
+        "error",
+      );
+      return false;
+    } finally {
+      setBroadcastSubmitting(false);
+    }
+  };
+
+  const onClearBroadcast = async () => {
+    if (!token) return;
+    setClearingBroadcast(true);
+    try {
+      await facilitatorClearBroadcast(token);
+      pollNow();
+    } catch (err) {
+      toast.show(
+        err instanceof ApiError
+          ? `Couldn't clear that — ${err.message}`
+          : "Couldn't clear that — check your connection and try again.",
+        "error",
+      );
+    } finally {
+      setClearingBroadcast(false);
+    }
+  };
+
+  // ---- pause/resume ---------------------------------------------------------
+  const [pauseBusy, setPauseBusy] = useState(false);
+  const onTogglePause = async () => {
+    if (!token || !data) return;
+    const next = !data.workshop.paused;
+    setPauseBusy(true);
+    try {
+      const res = await facilitatorPause(token, next);
+      pollNow();
+      issueUndo(res.undoable_action_id, next ? "Workshop paused" : "Workshop resumed");
+    } catch (err) {
+      toast.show(
+        err instanceof ApiError
+          ? `Couldn't change that — ${err.message}`
+          : "Couldn't change that — check your connection and try again.",
+        "error",
+      );
+    } finally {
+      setPauseBusy(false);
+    }
+  };
+
+  const onUndo = async (actionId: number) => {
+    if (!token) return;
+    setUndoBusy(true);
+    try {
+      await facilitatorUndo(token, actionId);
+      pollNow();
+      toast.show("Undone.", "success");
+    } catch (err) {
+      toast.show(
+        err instanceof ApiError
+          ? `Couldn't undo that — ${err.message}`
+          : "Couldn't undo that — check your connection and try again.",
+        "error",
+      );
+    } finally {
+      setUndoBusy(false);
+      setUndo(null);
+    }
+  };
+
+  // ---- advance (bulk, destructive → confirm) ---------------------------------
+  const advanceConfirm = useConfirm();
+  const [advanceMilestoneTitle, setAdvanceMilestoneTitle] = useState("");
+  const [advanceCount, setAdvanceCount] = useState<number | "all">("all");
+
+  const runAdvance = (milestoneId: number, title: string, participantIds: number[] | null) => {
+    setAdvanceMilestoneTitle(title);
+    setAdvanceCount(participantIds ? participantIds.length : "all");
+    advanceConfirm.ask(async () => {
+      if (!token) return;
+      try {
+        const res = await facilitatorAdvance(token, milestoneId, participantIds);
+        pollNow();
+        setSelectedIds(new Set());
+        issueUndo(res.undoable_action_id, `Advanced ${res.affected_count} to "${title}"`);
+      } catch (err) {
+        toast.show(
+          err instanceof ApiError
+            ? `Couldn't advance that — ${err.message}`
+            : "Couldn't advance that — check your connection and try again.",
+          "error",
+        );
+      }
+    });
+  };
+
+  // ---- participant selection (advance-selected) ------------------------------
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const toggleSelect = (id: number) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // ---- milestone management modal --------------------------------------------
+  const [manageOpen, setManageOpen] = useState(false);
+
+  // ---- right-rail tab: help queue vs audit trail ------------------------------
+  const [rightTab, setRightTab] = useState<"help" | "audit">("help");
+
   // ---- render -------------------------------------------------------------
   if (!token) {
     return (
@@ -275,16 +428,31 @@ function DashboardInner() {
             </div>
           </div>
           <div
-            aria-label="Facilitator controls (coming in later phases)"
+            aria-label="Facilitator controls"
             className="mt-3 flex flex-wrap items-center gap-2"
           >
-            <StubAction label="Broadcast" />
-            <StubAction label="Pause" />
+            <BroadcastAction onOpen={() => setBroadcastOpen(true)} />
+            <PauseControl
+              paused={data.workshop.paused}
+              busy={pauseBusy}
+              onToggle={onTogglePause}
+            />
+            <Button variant="secondary" size="sm" onClick={() => setManageOpen(true)}>
+              Manage milestones
+            </Button>
             <StubAction label="End workshop" />
             <StubAction label="AI help-desk" />
           </div>
         </div>
       </header>
+
+      {data.broadcast && (
+        <ActiveBroadcastBar
+          broadcast={data.broadcast}
+          onClear={onClearBroadcast}
+          clearing={clearingBroadcast}
+        />
+      )}
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
         <StatCards stats={data.stats} />
@@ -304,6 +472,7 @@ function DashboardInner() {
                   milestoneStats={data.milestone_stats}
                   totalParticipants={data.stats.participant_count}
                   crowdMilestoneId={crowdMilestoneId}
+                  onAdvanceAll={(id, title) => runAdvance(id, title, null)}
                 />
               )}
             </Card>
@@ -330,48 +499,96 @@ function DashboardInner() {
                 milestoneStats={data.milestone_stats}
                 joinUrl={ws.join_url}
                 nowMs={nowMs}
+                selectable
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                onAdvanceSelected={(id, title, ids) => runAdvance(id, title, ids)}
               />
             </Card>
           </div>
 
           <div className="space-y-4">
             <Card className="p-5">
-              <div className="mb-3 flex flex-wrap items-center gap-3">
-                <h2 className="text-base font-semibold text-stone-900">
+              <div className="mb-3 flex flex-wrap items-center gap-3" role="tablist" aria-label="Help queue or audit trail">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={rightTab === "help"}
+                  onClick={() => setRightTab("help")}
+                  className={cn(
+                    "rounded-md px-2 py-1 text-base font-semibold",
+                    rightTab === "help" ? "text-stone-900" : "text-stone-400 hover:text-stone-600",
+                  )}
+                >
                   Help queue
-                </h2>
-                <span
-                  aria-disabled="true"
-                  className="inline-flex items-center gap-1.5 text-sm font-medium text-stone-400 select-none"
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={rightTab === "audit"}
+                  data-testid="audit-tab"
+                  onClick={() => setRightTab("audit")}
+                  className={cn(
+                    "rounded-md px-2 py-1 text-base font-semibold",
+                    rightTab === "audit" ? "text-stone-900" : "text-stone-400 hover:text-stone-600",
+                  )}
                 >
                   Audit trail
-                  <StubBadge />
-                </span>
+                </button>
               </div>
-              <HelpQueue
-                queue={queue}
-                nowMs={nowMs}
-                onAnswer={onAnswer}
-                onResolve={onResolve}
-                busyIds={busyIds}
-              />
+              {rightTab === "help" ? (
+                <HelpQueue
+                  queue={queue}
+                  nowMs={nowMs}
+                  onAnswer={onAnswer}
+                  onResolve={onResolve}
+                  busyIds={busyIds}
+                />
+              ) : (
+                <AuditPanel token={token} nowMs={nowMs} active={rightTab === "audit"} />
+              )}
             </Card>
 
-            <StubCard
-              title="Stuck participants"
-              description="Alerts will name anyone inactive past the stuck threshold, with their current milestone."
-            />
-            <StubCard
-              title="Bottleneck"
-              description="Detects the milestone where the largest share of the room is waiting."
-            />
-            <StubCard
-              title="Session pulse"
-              description="Pace vs plan, % on track, and the projected finish time."
-            />
+            <StuckCard alerts={data.alerts} />
+            <BottleneckCard alerts={data.alerts} />
+            <PulseCard pulse={data.pulse} />
+            <Card className="p-4">
+              <SettingsControl token={token} onSaved={pollNow} />
+            </Card>
           </div>
         </div>
       </main>
+
+      <MilestoneManageModal
+        open={manageOpen}
+        token={token}
+        milestones={wsPayload.milestones}
+        onClose={() => setManageOpen(false)}
+        onChanged={() => {
+          pollNow();
+          wsCvRef.current = -2;
+          setWsRetry((x) => x + 1);
+        }}
+      />
+
+      <ConfirmDialog
+        open={advanceConfirm.open}
+        busy={advanceConfirm.busy}
+        title={`Advance ${advanceCount === "all" ? "everyone" : advanceCount} to "${advanceMilestoneTitle}"?`}
+        body="This marks the milestone complete for the selected participants. You'll have 30 seconds to undo."
+        confirmLabel="Advance"
+        onConfirm={advanceConfirm.confirm}
+        onCancel={advanceConfirm.cancel}
+      />
+
+      <BroadcastComposer
+        open={broadcastOpen}
+        submitting={broadcastSubmitting}
+        onClose={() => setBroadcastOpen(false)}
+        onSend={onSendBroadcast}
+      />
+
+      <UndoBanner state={undo} busy={undoBusy} onUndo={onUndo} onDismiss={() => setUndo(null)} />
     </div>
   );
 }

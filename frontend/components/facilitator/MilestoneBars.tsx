@@ -1,17 +1,21 @@
 import type { MilestoneStat } from "@/lib/api";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/format";
 
 export function MilestoneBars({
   milestoneStats,
   totalParticipants,
   crowdMilestoneId,
+  onAdvanceAll,
 }: {
   milestoneStats: MilestoneStat[];
   totalParticipants: number;
   /** The milestone where the largest group of participants currently sits. */
   crowdMilestoneId: number | null;
+  /** Mark everyone complete for this milestone (destructive/bulk — caller confirms). */
+  onAdvanceAll?: (milestoneId: number, title: string) => void;
 }) {
   const ordered = [...milestoneStats].sort((a, b) => a.position - b.position);
 
@@ -41,6 +45,16 @@ export function MilestoneBars({
                   {m.completed_count} / {totalParticipants} ·{" "}
                   {Math.round(m.completed_pct)}%
                 </span>
+                {onAdvanceAll && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    data-testid="advance-all-button"
+                    onClick={() => onAdvanceAll(m.milestone_id, m.title)}
+                  >
+                    Advance all
+                  </Button>
+                )}
               </div>
             </div>
             <ProgressBar

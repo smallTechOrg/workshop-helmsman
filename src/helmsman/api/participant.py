@@ -262,7 +262,7 @@ def poll_state(
                 "rank": rank,
             },
             "leaderboard": leaderboard,
-            "broadcast": None,
+            "broadcast": shared["broadcast"],
             "help_requests": [
                 serialize_help_request_participant(session, hr) for hr in my_requests
             ],

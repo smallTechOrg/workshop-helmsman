@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from src.helmsman.api._common import as_utc, iso_z, utcnow
 from src.helmsman.db.models import (
+    Broadcast,
     HelpAnswer,
     HelpRequest,
     Milestone,
@@ -24,6 +25,7 @@ from src.helmsman.db.models import (
     Participant,
     Workshop,
 )
+from src.helmsman.services.intelligence import compute_bottleneck, compute_pulse, compute_stuck
 
 SNAPSHOT_TTL_SECONDS = 2.0
 ACTIVE_WINDOW_SECONDS = 300
@@ -237,6 +239,111 @@ def _ordered_completed_ids(milestones: list[Milestone], completed_ids: set[int])
     return [m.id for m in milestones if m.id in completed_ids]
 
 
+def _active_broadcast(session: Session, workshop_id: int) -> Broadcast | None:
+    return session.scalar(
+        select(Broadcast)
+        .where(Broadcast.workshop_id == workshop_id, Broadcast.cleared_at.is_(None))
+        .order_by(Broadcast.created_at.desc(), Broadcast.id.desc())
+    )
+
+
+def serialize_broadcast(broadcast: Broadcast | None) -> dict | None:
+    if broadcast is None:
+        return None
+    return {
+        "id": broadcast.id,
+        "message_md": broadcast.message_md,
+        "created_at": iso_z(broadcast.created_at),
+    }
+
+
+def _build_alerts_and_pulse(
+    session: Session,
+    workshop: Workshop,
+    milestones: list[Milestone],
+    participants: list[Participant],
+    completions: dict[int, list[tuple[int, datetime]]],
+    open_help_by_participant: dict[int, int],
+    help_requests: list[HelpRequest],
+    now: datetime,
+) -> tuple[dict, dict]:
+    total_count = len(milestones)
+    milestones_by_id = {m.id: m.title for m in milestones}
+    planned_minutes_by_milestone = {m.id: m.minutes for m in milestones if m.minutes}
+
+    last_help_by_participant: dict[int, datetime] = {}
+    for hr in help_requests:
+        current = last_help_by_participant.get(hr.participant_id)
+        if current is None or as_utc(hr.created_at) > as_utc(current):
+            last_help_by_participant[hr.participant_id] = hr.created_at
+
+    stuck_input = []
+    active_for_bottleneck = []
+    completion_durations: list[float] = []
+    participants_progress = []
+
+    for p in participants:
+        completion_list = sorted(completions.get(p.id, []), key=lambda t: as_utc(t[1]))
+        completed_ids = {mid for mid, _ in completion_list}
+        finished = total_count > 0 and len(completed_ids) == total_count
+        current_milestone_id = _current_milestone_id(milestones, completed_ids)
+
+        candidates = [t for _, t in completion_list]
+        if p.id in last_help_by_participant:
+            candidates.append(last_help_by_participant[p.id])
+        last_activity_at = max(candidates, key=as_utc) if candidates else p.joined_at
+
+        stuck_input.append(
+            {
+                "participant_id": p.id,
+                "name": p.name,
+                "last_activity_at": last_activity_at,
+                "current_milestone_id": current_milestone_id,
+                "finished": finished,
+            }
+        )
+
+        if (now - as_utc(p.last_seen_at)) <= timedelta(seconds=ACTIVE_WINDOW_SECONDS):
+            active_for_bottleneck.append({"current_milestone_id": current_milestone_id})
+
+        previous_at = p.joined_at
+        for _, completed_at in completion_list:
+            gap_minutes = (as_utc(completed_at) - as_utc(previous_at)).total_seconds() / 60
+            if gap_minutes >= 0:
+                completion_durations.append(gap_minutes)
+            previous_at = completed_at
+
+        remaining_minutes = sum(
+            (m.minutes or 0)
+            for m in milestones
+            if m.id not in completed_ids and m.minutes
+        )
+        participants_progress.append(
+            {
+                "joined_at": p.joined_at,
+                "completed_count": len(completed_ids),
+                "total_count": total_count,
+                "remaining_planned_minutes": remaining_minutes if total_count > 0 else None,
+            }
+        )
+
+    stuck = compute_stuck(stuck_input, workshop.paused, workshop.stuck_minutes, now)
+    bottleneck = compute_bottleneck(active_for_bottleneck, milestones_by_id)
+    pulse_core = compute_pulse(
+        completion_durations, planned_minutes_by_milestone, participants_progress, now
+    )
+    open_help_count = sum(1 for hr in help_requests if hr.status == "open")
+
+    alerts = {"stuck": stuck, "bottleneck": bottleneck}
+    pulse = {
+        "pace_ratio": pulse_core["pace_ratio"],
+        "on_track_pct": pulse_core["on_track_pct"],
+        "open_help_count": open_help_count,
+        "projected_finish_at": pulse_core["projected_finish_at"],
+    }
+    return alerts, pulse
+
+
 # --- facilitator dashboard snapshot ---
 
 
@@ -323,6 +430,18 @@ def _build_dashboard(session: Session, workshop: Workshop, base_url: str) -> dic
     )
     help_queue = [serialize_help_request_facilitator(session, hr) for hr in queue]
 
+    alerts, pulse = _build_alerts_and_pulse(
+        session,
+        workshop,
+        milestones,
+        participants,
+        completions,
+        open_help_by_participant,
+        help_requests,
+        now,
+    )
+    broadcast = serialize_broadcast(_active_broadcast(session, workshop.id))
+
     return {
         "changed": True,
         "version": workshop.state_version,
@@ -347,9 +466,9 @@ def _build_dashboard(session: Session, workshop: Workshop, base_url: str) -> dic
         "distribution": build_distribution(completed_counts, total_count),
         "participants": participant_rows,
         "help_queue": help_queue,
-        "broadcast": None,
-        "alerts": None,
-        "pulse": None,
+        "broadcast": broadcast,
+        "alerts": alerts,
+        "pulse": pulse,
         "spend": None,
     }
 
@@ -403,4 +522,5 @@ def _build_participant_shared(session: Session, workshop: Workshop) -> dict:
         "total_count": total_count,
         "leaderboard": leaderboard,
         "rank_by_participant_id": {entry["participant_id"]: entry["rank"] for entry in ranked},
+        "broadcast": serialize_broadcast(_active_broadcast(session, workshop.id)),
     }

@@ -66,8 +66,8 @@ def test_full_core_loop(client, make_client, workshop, join_participant):
     assert rows["Priya"]["current_milestone_id"] == milestone_ids[2]
     assert rows["Priya"]["participant_url"].endswith(priya["participant_token"])
     assert dashboard["broadcast"] is None
-    assert dashboard["alerts"] is None
-    assert dashboard["pulse"] is None
+    assert dashboard["alerts"]["stuck"] == []
+    assert dashboard["pulse"]["open_help_count"] == dashboard["stats"]["open_help_count"]
     assert dashboard["spend"] is None
 
     # Leaderboard on the tracker: Priya rank 1, Arun rank 2

@@ -56,6 +56,8 @@ export function MilestoneList({
                 className="check-input"
                 checked={done}
                 disabled={paused}
+                aria-disabled={paused}
+                aria-checked={done}
                 onChange={(e) => onToggle(m.id, e.target.checked)}
                 aria-label={`Mark “${m.title}” ${done ? "not done" : "done"}`}
               />

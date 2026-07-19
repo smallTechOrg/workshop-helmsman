@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { DashboardParticipant, MilestoneStat } from "@/lib/api";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn, timeAgo } from "@/lib/format";
@@ -15,12 +16,22 @@ export function ParticipantTable({
   milestoneStats,
   joinUrl,
   nowMs,
+  selectable = false,
+  selectedIds,
+  onToggleSelect,
+  onAdvanceSelected,
 }: {
   participants: DashboardParticipant[];
   milestoneStats: MilestoneStat[];
   joinUrl: string;
   nowMs: number;
+  /** Enables the checkbox column + "Advance selected" toolbar. */
+  selectable?: boolean;
+  selectedIds?: Set<number>;
+  onToggleSelect?: (id: number) => void;
+  onAdvanceSelected?: (milestoneId: number, milestoneTitle: string, ids: number[]) => void;
 }) {
+  const [advanceTarget, setAdvanceTarget] = useState<string>("");
   const [sort, setSort] = useState<SortKey>("joined");
   const [filter, setFilter] = useState("");
 
@@ -106,9 +117,46 @@ export function ParticipantTable({
             </button>
           ))}
         </div>
-        <span className="ml-auto text-sm text-stone-500 tabular-nums">
+        <span className={cn("text-sm text-stone-500 tabular-nums", !selectable && "ml-auto")}>
           {rows.length} of {participants.length}
         </span>
+        {selectable && (
+          <div className="ml-auto flex items-center gap-2">
+            {selectedIds && selectedIds.size > 0 && (
+              <>
+                <span className="text-sm text-stone-600 tabular-nums">
+                  {selectedIds.size} selected
+                </span>
+                <select
+                  aria-label="Advance selected to milestone"
+                  value={advanceTarget}
+                  onChange={(e) => setAdvanceTarget(e.target.value)}
+                  className="rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm"
+                >
+                  <option value="">Advance to…</option>
+                  {milestoneOrder.map((m) => (
+                    <option key={m.milestone_id} value={m.milestone_id}>
+                      {m.position + 1}. {m.title}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!advanceTarget}
+                  onClick={() => {
+                    const m = milestoneOrder.find((mm) => String(mm.milestone_id) === advanceTarget);
+                    if (!m || !onAdvanceSelected || !selectedIds) return;
+                    onAdvanceSelected(m.milestone_id, m.title, [...selectedIds]);
+                    setAdvanceTarget("");
+                  }}
+                >
+                  Advance selected
+                </Button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {rows.length === 0 ? (
@@ -120,6 +168,11 @@ export function ParticipantTable({
           <table className="w-full min-w-[760px] border-collapse bg-white text-sm">
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50 text-left text-xs tracking-wide text-stone-500 uppercase">
+                {selectable && (
+                  <th scope="col" className="px-3 py-2 font-medium">
+                    <span className="sr-only">Select</span>
+                  </th>
+                )}
                 <th scope="col" className="px-3 py-2 font-medium">Name</th>
                 <th scope="col" className="px-3 py-2 font-medium">Progress</th>
                 <th scope="col" className="px-3 py-2 font-medium">Milestones</th>
@@ -137,6 +190,17 @@ export function ParticipantTable({
                     data-testid="participant-row"
                     className="border-b border-stone-100 last:border-b-0 hover:bg-stone-50/60"
                   >
+                    {selectable && (
+                      <td className="px-3 py-2.5">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${p.name}`}
+                          checked={selectedIds?.has(p.id) ?? false}
+                          onChange={() => onToggleSelect?.(p.id)}
+                          className="size-4 rounded border-stone-300"
+                        />
+                      </td>
+                    )}
                     <td className="px-3 py-2.5">
                       <span className="font-medium whitespace-pre-wrap text-stone-800">
                         {p.name}
