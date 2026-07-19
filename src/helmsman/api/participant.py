@@ -183,13 +183,15 @@ def join_workshop(
         name=participant.name,
     )
     base = request_base_url(request)
-    return ok(
+    payload = ok(
         {
             "participant_token": participant.token,
             "participant_url": f"{base}/p/{participant.token}",
             "name": participant.name,
         }
     )
+    session.commit()  # visible before the response reaches the client
+    return payload
 
 
 # --- tracker polling ---
@@ -341,7 +343,9 @@ def complete_milestone(
             participant_id=participant.id,
             milestone_id=milestone.id,
         )
-    return ok(_completion_payload(session, workshop, participant))
+    payload = ok(_completion_payload(session, workshop, participant))
+    session.commit()  # visible before the response reaches the client
+    return payload
 
 
 @router.post("/p/{participant_token}/milestones/{milestone_id}/uncomplete")
@@ -371,7 +375,9 @@ def uncomplete_milestone(
             participant_id=participant.id,
             milestone_id=milestone.id,
         )
-    return ok(_completion_payload(session, workshop, participant))
+    payload = ok(_completion_payload(session, workshop, participant))
+    session.commit()  # visible before the response reaches the client
+    return payload
 
 
 # --- help desk ---
@@ -415,12 +421,14 @@ def create_help_request(
         help_request_id=help_request.id,
         milestone_id=current_milestone_id,
     )
-    return ok(
+    payload = ok(
         {
             "help_request": serialize_help_request_participant(session, help_request),
             "version": version,
         }
     )
+    session.commit()  # visible before the response reaches the client
+    return payload
 
 
 @router.post("/p/{participant_token}/help/{help_request_id}/resolve")
@@ -447,9 +455,11 @@ def resolve_own_help_request(
             help_request_id=help_request.id,
             resolved_by="participant",
         )
-    return ok(
+    payload = ok(
         {
             "help_request": serialize_help_request_participant(session, help_request),
             "version": workshop.state_version,
         }
     )
+    session.commit()  # visible before the response reaches the client
+    return payload

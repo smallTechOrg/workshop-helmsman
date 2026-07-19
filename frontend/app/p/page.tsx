@@ -96,7 +96,7 @@ function TrackerInner() {
   const [contentRetry, setContentRetry] = useState(0);
   useEffect(() => {
     if (!token || contentVersion < 0) return;
-    if (content !== null && contentCvRef.current >= contentVersion) return;
+    if (contentCvRef.current >= contentVersion) return;
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     participantContent(token, contentCvRef.current)
@@ -113,7 +113,7 @@ function TrackerInner() {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [token, contentVersion, contentRetry, content]);
+  }, [token, contentVersion, contentRetry]);
 
   const contentById = useMemo(() => {
     if (!content) return null;

@@ -151,12 +151,14 @@ def answer_help_request(
         help_request_id=help_request.id,
         participant_id=help_request.participant_id,
     )
-    return ok(
+    payload = ok(
         {
             "help_request": serialize_help_request_facilitator(session, help_request),
             "version": version,
         }
     )
+    session.commit()  # visible before the response reaches the client
+    return payload
 
 
 @router.post("/help/{help_request_id}/resolve")
@@ -190,9 +192,11 @@ def resolve_help_request(
             help_request_id=help_request.id,
             resolved_by="facilitator",
         )
-    return ok(
+    payload = ok(
         {
             "help_request": serialize_help_request_facilitator(session, help_request),
             "version": workshop.state_version,
         }
     )
+    session.commit()  # visible before the response reaches the client
+    return payload
