@@ -1,0 +1,13 @@
+{
+  "name": "workshop-helmsman-e2e",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Root package: Playwright e2e suite for Workshop Helmsman (frontend app deps live in frontend/, a separate pnpm project)",
+  "scripts": {
+    "test:e2e": "playwright test tests/e2e --reporter=line"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.1.1"
+  }
+}

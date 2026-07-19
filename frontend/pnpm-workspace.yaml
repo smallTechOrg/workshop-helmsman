@@ -1,0 +1,4 @@
+# sharp is an optional Next.js dependency for image optimization; this static
+# export ships images unoptimized, so its native build step is not needed.
+allowBuilds:
+  sharp: false
