@@ -30,6 +30,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ConnectionIndicator } from "@/components/ui/ConnectionIndicator";
 import { useToast } from "@/components/ui/Toast";
 import { MilestoneList } from "@/components/participant/MilestoneList";
+import { Markdown } from "@/components/ui/Markdown";
 import { Leaderboard } from "@/components/participant/Leaderboard";
 import { HelpPanel } from "@/components/participant/HelpPanel";
 import { PersonalLinkCallout } from "@/components/participant/PersonalLinkCallout";
@@ -353,6 +354,11 @@ function TrackerInner() {
             url={personalUrl}
             storageKey={`helmsman_plink_dismissed_${token.slice(0, 8)}`}
           />
+          {content && content.workshop.description_md.trim() !== "" && (
+            <Card className="p-4" data-testid="workshop-description">
+              <Markdown className="text-sm">{content.workshop.description_md}</Markdown>
+            </Card>
+          )}
           <MilestoneList
             milestones={data.milestones}
             contentById={contentById}
