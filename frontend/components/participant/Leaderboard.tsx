@@ -62,12 +62,13 @@ export function Leaderboard({
               {row.name}
               {row.is_me && <span className="ml-1.5 text-xs text-brand-600">(you)</span>}
             </span>
-            <ProgressBar
-              value={row.progress_pct}
-              size="sm"
-              className="w-14 shrink-0"
-              label={`${row.name}'s progress`}
-            />
+            <div className="w-14 shrink-0">
+              <ProgressBar
+                value={row.progress_pct}
+                size="sm"
+                label={`${row.name}'s progress`}
+              />
+            </div>
             <span className="w-6 shrink-0 text-right text-xs text-stone-500 tabular-nums">
               {row.completed_count}
             </span>
