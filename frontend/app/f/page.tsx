@@ -376,7 +376,7 @@ function DashboardInner() {
   const [manageOpen, setManageOpen] = useState(false);
 
   // ---- right-rail tab: help queue vs audit trail ------------------------------
-  const [rightTab, setRightTab] = useState<"help" | "audit">("help");
+  const [rightTab, setRightTab] = useState<"help" | "audit" | "settings">("help");
 
   // ---- render -------------------------------------------------------------
   if (!token) {
@@ -535,6 +535,19 @@ function DashboardInner() {
                 >
                   Audit trail
                 </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={rightTab === "settings"}
+                  data-testid="settings-tab"
+                  onClick={() => setRightTab("settings")}
+                  className={cn(
+                    "rounded-md px-2 py-1 text-base font-semibold",
+                    rightTab === "settings" ? "text-stone-900" : "text-stone-400 hover:text-stone-600",
+                  )}
+                >
+                  Settings
+                </button>
               </div>
               {rightTab === "help" ? (
                 <HelpQueue
@@ -544,17 +557,16 @@ function DashboardInner() {
                   onResolve={onResolve}
                   busyIds={busyIds}
                 />
-              ) : (
+              ) : rightTab === "audit" ? (
                 <AuditPanel token={token} nowMs={nowMs} active={rightTab === "audit"} />
+              ) : (
+                <SettingsControl token={token} onSaved={() => pollNow()} />
               )}
             </Card>
 
             <StuckCard alerts={data.alerts} />
             <BottleneckCard alerts={data.alerts} />
             <PulseCard pulse={data.pulse} />
-            <Card className="p-4">
-              <SettingsControl token={token} onSaved={pollNow} />
-            </Card>
           </div>
         </div>
       </main>
