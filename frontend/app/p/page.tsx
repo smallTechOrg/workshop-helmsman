@@ -367,7 +367,11 @@ function TrackerInner() {
             <h2 className="mb-2 text-base font-semibold text-stone-900">
               Leaderboard
             </h2>
-            <Leaderboard rows={data.leaderboard} me={data.me} />
+            <Leaderboard
+              rows={data.leaderboard}
+              me={data.me}
+              participantsCount={data.participants_count ?? data.leaderboard.length}
+            />
           </Card>
           <Card className="p-4">
             <HelpPanel

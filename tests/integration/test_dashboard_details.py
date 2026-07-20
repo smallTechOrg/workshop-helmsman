@@ -213,3 +213,36 @@ def test_finished_participant_counted(client, make_client, workshop, join_partic
     row = dashboard["participants"][0]
     assert row["current_milestone_id"] is None
     assert row["progress_pct"] == 100.0
+
+
+def test_leaderboard_capped_at_top_15_plus_me(client, make_client, workshop, join_participant):
+    """At scale the tracker payload sends only the top 15 + the caller's own row."""
+    slug = workshop["join_slug"]
+    browsers = [make_client() for _ in range(20)]
+    joined = [
+        join_participant(b, slug, f"P{i:02d}") for i, b in enumerate(browsers)
+    ]
+
+    # First 16 participants complete a milestone so P19 (idle) ranks below top 15.
+    state = browsers[0].get(f"/api/p/{joined[0]['participant_token']}/state").json()["data"]
+    first_milestone = state["milestones"][0]["id"]
+    for b, j in zip(browsers[:16], joined[:16]):
+        b.post(f"/api/p/{j['participant_token']}/milestones/{first_milestone}/complete")
+
+    from src.helmsman.services.snapshots import clear_snapshot_cache
+
+    clear_snapshot_cache()
+
+    last = browsers[19].get(f"/api/p/{joined[19]['participant_token']}/state").json()["data"]
+    assert last["participants_count"] == 20
+    rows = last["leaderboard"]
+    # top 15 + the caller's own trailing row
+    assert len(rows) == 16
+    assert [r["rank"] <= 15 for r in rows[:15]] == [True] * 15
+    mine = rows[-1]
+    assert mine["is_me"] is True and mine["rank"] > 15
+
+    # A participant inside the top 15 gets exactly 15 rows (no duplicate self row).
+    top = browsers[0].get(f"/api/p/{joined[0]['participant_token']}/state").json()["data"]
+    assert len(top["leaderboard"]) == 15
+    assert sum(1 for r in top["leaderboard"] if r["is_me"]) == 1

@@ -10,26 +10,39 @@ const MEDAL_STYLES: Record<number, string> = {
   3: "bg-orange-100 text-orange-700 border-orange-300",
 };
 
+// Server sends the top N plus (when outside it) the caller's own row.
+const TOP_N = 15;
+
 export function Leaderboard({
   rows,
   me,
+  participantsCount,
 }: {
   rows: LeaderboardRow[];
   me: TrackerMe;
+  participantsCount: number;
 }) {
+  const topRows = rows.filter((row) => row.rank <= TOP_N);
+  const myTrailingRow = rows.find((row) => row.is_me && row.rank > TOP_N);
   return (
     <div>
       <p className="mb-2 rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-800">
-        You're <span className="font-semibold">#{me.rank}</span> of {rows.length} —{" "}
+        You're <span className="font-semibold">#{me.rank}</span> of {participantsCount} —{" "}
         {me.completed_count} of {me.total_count} done
       </p>
+      {participantsCount > topRows.length && (
+        <p className="mb-1.5 px-1 text-xs text-stone-400">
+          Top {Math.min(TOP_N, participantsCount)} of {participantsCount}
+        </p>
+      )}
       <ol data-testid="leaderboard" className="space-y-1">
-        {rows.map((row) => (
+        {[...topRows, ...(myTrailingRow ? [myTrailingRow] : [])].map((row) => (
           <li
             key={`${row.rank}-${row.name}`}
             className={cn(
               "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5",
               row.is_me ? "bg-brand-50 ring-1 ring-brand-200" : "hover:bg-stone-50",
+              row.rank > TOP_N && "mt-2 border-t border-dashed border-stone-200 pt-2",
             )}
           >
             <span
@@ -42,7 +55,7 @@ export function Leaderboard({
             </span>
             <span
               className={cn(
-                "min-w-0 flex-1 truncate text-sm whitespace-pre",
+                "min-w-0 flex-1 truncate text-sm",
                 row.is_me ? "font-semibold text-brand-900" : "text-stone-700",
               )}
             >

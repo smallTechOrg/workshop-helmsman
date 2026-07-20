@@ -529,6 +529,7 @@ export interface StatePayload {
   milestones: MilestoneMeta[];
   me: TrackerMe;
   leaderboard: LeaderboardRow[];
+  participants_count: number;
   broadcast: BroadcastInfo | null;
   help_requests: TrackerHelpRequest[];
 }

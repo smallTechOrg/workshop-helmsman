@@ -226,6 +226,17 @@ def poll_state(
     total_count = shared["total_count"]
     rank = shared["rank_by_participant_id"].get(participant.id)
 
+    # Top-N only: at 300+ participants the full board would ship to every
+    # participant on every poll. The caller's own row is always included.
+    LEADERBOARD_TOP_N = 15
+    visible_rows = shared["leaderboard"][:LEADERBOARD_TOP_N]
+    if participant.id not in {row["participant_id"] for row in visible_rows}:
+        mine = next(
+            (row for row in shared["leaderboard"] if row["participant_id"] == participant.id),
+            None,
+        )
+        if mine is not None:
+            visible_rows = [*visible_rows, mine]
     leaderboard = [
         {
             "rank": row["rank"],
@@ -234,7 +245,7 @@ def poll_state(
             "progress_pct": row["progress_pct"],
             "is_me": row["participant_id"] == participant.id,
         }
-        for row in shared["leaderboard"]
+        for row in visible_rows
     ]
 
     my_requests = list(
@@ -262,6 +273,7 @@ def poll_state(
                 "rank": rank,
             },
             "leaderboard": leaderboard,
+            "participants_count": len(shared["leaderboard"]),
             "broadcast": shared["broadcast"],
             "help_requests": [
                 serialize_help_request_participant(session, hr) for hr in my_requests
