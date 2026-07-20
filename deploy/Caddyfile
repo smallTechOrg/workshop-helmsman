@@ -1,0 +1,13 @@
+# Automatic HTTPS for Workshop Helmsman.
+# Caddy obtains + renews a Let's Encrypt cert for $HELMSMAN_DOMAIN on first boot
+# (port 80 + 443 must be reachable from the internet and DNS must already point
+# at this host). All traffic is reverse-proxied to the app container on :8001.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$HELMSMAN_DOMAIN} {
+	encode gzip zstd
+	reverse_proxy app:8001
+}
