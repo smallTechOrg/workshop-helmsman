@@ -1,7 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { ApiError, facilitatorEditWorkshop } from "@/lib/api";
+import { ApiError, facilitatorEditWorkshop, type JoinFormField } from "@/lib/api";
+import {
+  JoinFieldsEditor,
+  draftsToFields,
+  fieldsToDrafts,
+  type JoinFieldDraft,
+} from "@/components/facilitator/JoinFieldsEditor";
 import { Button } from "@/components/ui/Button";
 import { Markdown } from "@/components/ui/Markdown";
 
@@ -13,21 +19,24 @@ export function WorkshopDetailsForm({
   token,
   name,
   descriptionMd,
+  joinForm,
   onSaved,
 }: {
   token: string;
   name: string;
   descriptionMd: string;
+  joinForm: JoinFormField[];
   onSaved: () => void;
 }) {
   const [draftName, setDraftName] = useState(name);
   const [draftDescription, setDraftDescription] = useState(descriptionMd);
+  const [joinFields, setJoinFields] = useState<JoinFieldDraft[]>(() => fieldsToDrafts(joinForm));
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const dirty = draftName !== name || draftDescription !== descriptionMd;
+  const dirty = true; // join-field rows have no cheap equality; always allow save
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,12 +49,18 @@ export function WorkshopDetailsForm({
       setError(`The description is too long (max ${DESCRIPTION_MAX.toLocaleString()} characters).`);
       return;
     }
+    const joinResult = draftsToFields(joinFields);
+    if (joinResult.error) {
+      setError(joinResult.error);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       await facilitatorEditWorkshop(token, {
         name: trimmed,
         description_md: draftDescription,
+        join_form: joinResult.fields,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -106,13 +121,20 @@ export function WorkshopDetailsForm({
           placeholder="What this workshop covers, links to prerequisites, anything participants should know…"
         />
       )}
+      <div className="mb-3">
+        <p className="mb-1 text-sm font-medium text-stone-700">Join form</p>
+        <p className="mb-2 text-xs text-amber-600">
+          Changes apply to participants who join from now on; existing participants keep their answers.
+        </p>
+        <JoinFieldsEditor drafts={joinFields} onChange={setJoinFields} />
+      </div>
       {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
       <div className="flex items-center gap-3">
         <Button
           type="submit"
           size="sm"
           data-testid="workshop-details-save"
-          disabled={busy || !dirty}
+          disabled={busy}
         >
           {busy ? "Saving…" : "Save details"}
         </Button>

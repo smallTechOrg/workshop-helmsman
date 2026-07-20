@@ -1,5 +1,7 @@
 """Admin surface — header `X-Admin-Key` (see spec/api.md §Admin surface)."""
 
+import json
+
 import structlog
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, field_validator
@@ -9,6 +11,7 @@ from sqlalchemy.orm import Session
 from src.helmsman.api._common import iso_z, ok, request_base_url
 from src.helmsman.db.models import HelpRequest, Milestone, Participant, Workshop
 from src.helmsman.db.session import get_session
+from src.helmsman.services.join_form import JoinFormError, validate_field_defs
 from src.helmsman.security import (
     generate_admin_token,
     generate_join_slug,
@@ -63,6 +66,15 @@ class WorkshopCreate(BaseModel):
     name: str
     description_md: str = ""
     milestones: list[MilestoneIn] = Field(min_length=1, max_length=MILESTONES_MAX)
+    join_form: list[dict] = Field(default_factory=list)
+
+    @field_validator("join_form")
+    @classmethod
+    def _check_join_form(cls, value: list[dict]) -> list[dict]:
+        try:
+            return validate_field_defs(value)
+        except JoinFormError as exc:
+            raise ValueError(str(exc)) from exc
 
     @field_validator("name")
     @classmethod
@@ -149,6 +161,7 @@ def create_workshop(
         join_slug=_unique_join_slug(session),
         status="live",
     )
+    workshop.join_form_json = json.dumps(body.join_form)
     session.add(workshop)
     session.flush()
 

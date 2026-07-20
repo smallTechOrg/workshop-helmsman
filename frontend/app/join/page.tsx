@@ -46,6 +46,8 @@ function JoinInner() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!slug) return;
@@ -148,11 +150,20 @@ function JoinInner() {
       setNameError("That name is too long — keep it under 80 characters.");
       return;
     }
+    const fields = info?.workshop.join_form ?? [];
+    const errors: Record<string, string> = {};
+    for (const f of fields) {
+      if (f.required && !(answers[f.key] ?? "").trim()) {
+        errors[f.key] = `${f.label} is required.`;
+      }
+    }
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
     setNameError(null);
     setJoinError(null);
     setJoining(true);
     try {
-      const res = await joinWorkshop(slug, trimmed);
+      const res = await joinWorkshop(slug, trimmed, answers);
       router.replace(`/p/?t=${encodeURIComponent(res.participant_token)}`);
     } catch (err) {
       setJoining(false);
@@ -218,6 +229,58 @@ function JoinInner() {
               {nameError}
             </p>
           )}
+          {(info?.workshop.join_form ?? []).map((f) => (
+            <div key={f.key} className="mt-4" data-testid="join-custom-field">
+              <label
+                htmlFor={`join-f-${f.key}`}
+                className="mb-1 block text-sm font-medium text-stone-700"
+              >
+                {f.label}
+                {f.required ? (
+                  <span className="ml-0.5 text-red-500" aria-hidden>*</span>
+                ) : (
+                  <span className="ml-1.5 font-normal text-stone-400">(optional)</span>
+                )}
+              </label>
+              {f.type === "dropdown" ? (
+                <select
+                  id={`join-f-${f.key}`}
+                  data-testid={`join-field-${f.key}`}
+                  value={answers[f.key] ?? ""}
+                  onChange={(e) => {
+                    setAnswers((a) => ({ ...a, [f.key]: e.target.value }));
+                    setFieldErrors((fe) => ({ ...fe, [f.key]: "" }));
+                  }}
+                  className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-stone-900 focus:border-brand-500"
+                >
+                  <option value="">Choose…</option>
+                  {(f.options ?? []).map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  id={`join-f-${f.key}`}
+                  data-testid={`join-field-${f.key}`}
+                  type="text"
+                  maxLength={500}
+                  value={answers[f.key] ?? ""}
+                  onChange={(e) => {
+                    setAnswers((a) => ({ ...a, [f.key]: e.target.value }));
+                    setFieldErrors((fe) => ({ ...fe, [f.key]: "" }));
+                  }}
+                  className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-stone-900 placeholder:text-stone-400 focus:border-brand-500"
+                />
+              )}
+              {fieldErrors[f.key] ? (
+                <p role="alert" className="mt-1.5 text-sm text-red-600">
+                  {fieldErrors[f.key]}
+                </p>
+              ) : null}
+            </div>
+          ))}
           {joinError && (
             <p role="alert" className="mt-1.5 text-sm text-red-600">
               {joinError}

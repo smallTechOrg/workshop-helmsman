@@ -398,6 +398,7 @@ def _build_dashboard(session: Session, workshop: Workshop, base_url: str) -> dic
                 "current_milestone_id": _current_milestone_id(milestones, completed_ids),
                 "open_help_count": open_help_by_participant.get(p.id, 0),
                 "participant_url": f"{base_url}/p/{p.token}",
+                "answers": json.loads(p.answers_json or "{}"),
             }
         )
 

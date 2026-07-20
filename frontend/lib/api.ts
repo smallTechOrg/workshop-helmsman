@@ -141,6 +141,7 @@ export interface CreateWorkshopBody {
   name: string;
   description_md: string;
   milestones: MilestoneInput[];
+  join_form?: JoinFormField[];
 }
 
 export function adminListWorkshops(
@@ -174,6 +175,7 @@ export interface FacilitatorWorkshop {
   paused: boolean;
   ai_enabled: boolean;
   join_slug: string;
+  join_form: JoinFormField[];
   join_url: string;
   facilitator_url: string;
   created_at: string;
@@ -211,6 +213,7 @@ export interface DistributionBucket {
 export interface DashboardParticipant {
   id: number;
   name: string;
+  answers: Record<string, string>;
   joined_at: string;
   last_seen_at: string;
   completed_milestone_ids: number[];
@@ -396,7 +399,7 @@ export function facilitatorReorder(
 
 export function facilitatorEditWorkshop(
   adminToken: string,
-  body: { name?: string; description_md?: string },
+  body: { name?: string; description_md?: string; join_form?: JoinFormField[] },
 ): Promise<{ workshop: { id: number; name: string; description_md: string }; version: number }> {
   return request(`/api/f/${encodeURIComponent(adminToken)}/workshop`, {
     method: "PATCH",
@@ -479,6 +482,14 @@ export function facilitatorSettings(
 // Participant surface
 // ---------------------------------------------------------------------------
 
+export interface JoinFormField {
+  key: string;
+  label: string;
+  type: "text" | "dropdown";
+  required: boolean;
+  options?: string[];
+}
+
 export interface JoinInfo {
   workshop: {
     name: string;
@@ -486,6 +497,7 @@ export interface JoinInfo {
     status: WorkshopStatus;
     milestone_count: number;
     participant_count: number;
+    join_form: JoinFormField[];
   };
   me: { participant_token: string; name: string } | null;
 }
@@ -569,10 +581,11 @@ export function joinInfo(joinSlug: string): Promise<JoinInfo> {
 export function joinWorkshop(
   joinSlug: string,
   name: string,
+  answers: Record<string, string> = {},
 ): Promise<JoinResult> {
   return request(`/api/join/${encodeURIComponent(joinSlug)}`, {
     method: "POST",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, answers }),
   });
 }
 

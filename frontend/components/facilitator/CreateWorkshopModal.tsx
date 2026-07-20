@@ -8,6 +8,11 @@ import {
   type WorkshopFull,
 } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import {
+  JoinFieldsEditor,
+  draftsToFields,
+  type JoinFieldDraft,
+} from "@/components/facilitator/JoinFieldsEditor";
 import { Modal } from "@/components/ui/Modal";
 import { Markdown } from "@/components/ui/Markdown";
 import { StubCard } from "@/components/ui/StubBadge";
@@ -41,6 +46,7 @@ export function CreateWorkshopModal({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [rows, setRows] = useState<MilestoneRow[]>([]);
+  const [joinFields, setJoinFields] = useState<JoinFieldDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -61,6 +67,7 @@ export function CreateWorkshopModal({
     setRows((prev) => prev.filter((r) => r.key !== key));
 
   const reset = () => {
+    setJoinFields([]);
     setName("");
     setDescription("");
     setRows([]);
@@ -108,12 +115,19 @@ export function CreateWorkshopModal({
       milestones.push({ title, content_md: r.content, minutes });
     }
 
+    const joinForm = draftsToFields(joinFields);
+    if (joinForm.error) {
+      setError(joinForm.error);
+      return;
+    }
+
     setSubmitting(true);
     try {
       const { workshop } = await adminCreateWorkshop(adminKey, {
         name: trimmedName,
         description_md: description,
         milestones,
+        join_form: joinForm.fields,
       });
       reset();
       onCreated(workshop);
@@ -167,6 +181,11 @@ export function CreateWorkshopModal({
             placeholder="Welcome! Today we're building…"
             className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 font-mono text-sm text-stone-900 placeholder:text-stone-400 focus:border-brand-500"
           />
+        </div>
+
+        <div>
+          <p className="mb-1 block text-sm font-medium text-stone-700">Join form</p>
+          <JoinFieldsEditor drafts={joinFields} onChange={setJoinFields} />
         </div>
 
         <StubCard
