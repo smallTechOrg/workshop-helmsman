@@ -70,7 +70,7 @@ sudo mkdir -p /opt/helmsman && sudo chown "$USER" /opt/helmsman
 cd /opt/helmsman
 cat > .env <<'EOF'
 HELMSMAN_DOMAIN=workshops.smalltech.in
-ACME_EMAIL=ops@smalltech.in
+ACME_EMAIL=contact@smalltech.in
 HELMSMAN_ADMIN_KEY=<A_STRONG_RANDOM_STRING_16+_CHARS>
 # Optional — Phase 4 AI help-desk. Leave blank to run air-gapped.
 OPENROUTER_API_KEY=
