@@ -9,6 +9,7 @@ import { timeAgo } from "@/lib/format";
 const ACTION_LABELS: Record<string, string> = {
   "workshop.create": "created the workshop",
   "workshop.edit": "edited the workshop details",
+  "participant.edit": "edited a participant",
   "help.answer": "answered a help request",
   "help.resolve": "resolved a help request",
   "broadcast.send": "sent a broadcast",

@@ -30,6 +30,7 @@ export function ParticipantTable({
   selectedIds,
   onToggleSelect,
   onAdvanceSelected,
+  onEditParticipant,
   joinForm = [],
 }: {
   participants: DashboardParticipant[];
@@ -41,6 +42,7 @@ export function ParticipantTable({
   selectedIds?: Set<number>;
   onToggleSelect?: (id: number) => void;
   onAdvanceSelected?: (milestoneId: number, milestoneTitle: string, ids: number[]) => void;
+  onEditParticipant?: (participant: DashboardParticipant) => void;
   joinForm?: JoinFormField[];
 }) {
   const [advanceTarget, setAdvanceTarget] = useState<string>("");
@@ -259,7 +261,7 @@ export function ParticipantTable({
                 <th scope="col" className="px-3 py-2 font-medium">Joined</th>
                 <th scope="col" className="px-3 py-2 font-medium">Last seen</th>
                 <th scope="col" className="px-3 py-2 font-medium">
-                  <span className="sr-only">Personal link</span>
+                  <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
@@ -350,13 +352,29 @@ export function ParticipantTable({
                       {timeAgo(p.last_seen_at, nowMs)}
                     </td>
                     <td className="px-3 py-2.5">
-                      <CopyButton
-                        text={p.participant_url}
-                        iconOnly
-                        data-testid="participant-personal-link"
-                        title={`Copy ${p.name}'s personal link`}
-                        aria-label={`Copy ${p.name}'s personal link`}
-                      />
+                      <div className="flex items-center justify-end gap-1.5">
+                        {onEditParticipant && (
+                          <button
+                            type="button"
+                            data-testid="participant-edit"
+                            onClick={() => onEditParticipant(p)}
+                            title={`Edit ${p.name}`}
+                            aria-label={`Edit ${p.name}`}
+                            className="inline-flex size-7 items-center justify-center rounded-md border border-stone-300 bg-white text-stone-600 shadow-sm transition-colors hover:bg-stone-50 hover:text-stone-800"
+                          >
+                            <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" className="size-3.5">
+                              <path d="M13.586 3.586a2 2 0 1 1 2.828 2.828l-.793.793-2.828-2.828.793-.793ZM11.379 5.793 3 14.172V17h2.828l8.38-8.379-2.83-2.828Z" />
+                            </svg>
+                          </button>
+                        )}
+                        <CopyButton
+                          text={p.participant_url}
+                          iconOnly
+                          data-testid="participant-personal-link"
+                          title={`Copy ${p.name}'s personal link`}
+                          aria-label={`Copy ${p.name}'s personal link`}
+                        />
+                      </div>
                     </td>
                   </tr>
                 );

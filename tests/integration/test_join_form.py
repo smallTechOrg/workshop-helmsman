@@ -80,3 +80,49 @@ def test_join_form_definition_validation(client, admin_headers):
         "join_form": bad,
     }
     assert client.post("/api/admin/workshops", json=body, headers=admin_headers).status_code == 422
+
+
+def test_facilitator_edits_participant(client, make_client, admin_headers):
+    ws = _create(client, admin_headers, FORM)
+    token = ws["admin_token"]
+    b = make_client()
+    p = b.post(
+        f"/api/join/{ws['join_slug']}",
+        json={"name": "Asha", "answers": {"team": "Platform", "role": "Engineer"}},
+    ).json()["data"]
+
+    dash = client.get(f"/api/f/{token}/dashboard").json()["data"]
+    pid = dash["participants"][0]["id"]
+
+    # Edit name + one answer.
+    res = client.patch(
+        f"/api/f/{token}/participants/{pid}",
+        json={"name": "  Asha K.  ", "answers": {"team": "Growth", "role": "Student"}},
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]["participant"]
+    assert data["name"] == "Asha K."  # trimmed
+    assert data["answers"] == {"team": "Growth", "role": "Student"}
+
+    # Reflected on the dashboard and audited.
+    dash = client.get(f"/api/f/{token}/dashboard").json()["data"]
+    assert dash["participants"][0]["name"] == "Asha K."
+    assert dash["participants"][0]["answers"]["team"] == "Growth"
+    audit = client.get(f"/api/f/{token}/audit").json()["data"]
+    assert any(r["action"] == "participant.edit" for r in audit["actions"])
+
+    # The participant sees the new name on their own tracker.
+    state = b.get(f"/api/p/{p['participant_token']}/state").json()["data"]
+    assert state["me"]["name"] == "Asha K."
+
+    # Validation: bad name and bad dropdown value rejected.
+    assert client.patch(f"/api/f/{token}/participants/{pid}", json={"name": "   "}).status_code == 422
+    assert (
+        client.patch(
+            f"/api/f/{token}/participants/{pid}", json={"answers": {"role": "CEO"}}
+        ).status_code
+        == 422
+    )
+
+    # Unknown participant id → 404.
+    assert client.patch(f"/api/f/{token}/participants/999999", json={"name": "X"}).status_code == 404

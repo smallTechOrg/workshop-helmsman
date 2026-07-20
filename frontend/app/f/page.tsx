@@ -20,6 +20,7 @@ import {
   facilitatorResolveHelp,
   facilitatorUndo,
   facilitatorWorkshop,
+  type DashboardParticipant,
   type DashboardPayload,
   type FacilitatorWorkshopPayload,
   type HelpQueueItem,
@@ -48,6 +49,7 @@ import { UndoBanner, type UndoState } from "@/components/facilitator/UndoBanner"
 import { PauseControl } from "@/components/facilitator/PauseControl";
 import { MilestonesTab } from "@/components/facilitator/MilestonesTab";
 import { WorkshopDetailsForm } from "@/components/facilitator/WorkshopDetailsForm";
+import { EditParticipantModal } from "@/components/facilitator/EditParticipantModal";
 import { AuditPanel } from "@/components/facilitator/AuditPanel";
 import { StuckCard, BottleneckCard } from "@/components/facilitator/AlertsCards";
 import { PulseCard } from "@/components/facilitator/PulseCard";
@@ -378,6 +380,10 @@ function DashboardInner() {
   // ---- milestone management modal --------------------------------------------
   const [manageOpen, setManageOpen] = useState(false);
 
+  // ---- edit-participant modal ------------------------------------------------
+  const [editingParticipant, setEditingParticipant] =
+    useState<DashboardParticipant | null>(null);
+
   // ---- right-rail tab: help queue vs audit trail ------------------------------
   const [rightTab, setRightTab] = useState<"help" | "audit" | "settings">("help");
 
@@ -513,6 +519,7 @@ function DashboardInner() {
                 milestoneStats={data.milestone_stats}
                 joinUrl={ws.join_url}
                 joinForm={ws.join_form ?? []}
+                onEditParticipant={setEditingParticipant}
                 nowMs={nowMs}
                 selectable
                 selectedIds={selectedIds}
@@ -629,6 +636,14 @@ function DashboardInner() {
       />
 
       <UndoBanner state={undo} busy={undoBusy} onUndo={onUndo} onDismiss={() => setUndo(null)} />
+
+      <EditParticipantModal
+        token={token}
+        participant={editingParticipant}
+        joinForm={ws.join_form ?? []}
+        onClose={() => setEditingParticipant(null)}
+        onSaved={pollNow}
+      />
     </div>
   );
 }

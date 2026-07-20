@@ -22,7 +22,11 @@ from src.helmsman.db.models import (
 from src.helmsman.db.session import get_session
 from src.helmsman.security import workshop_by_admin_token
 from src.helmsman.services.audit import record_action
-from src.helmsman.services.join_form import JoinFormError, validate_field_defs
+from src.helmsman.services.join_form import (
+    JoinFormError,
+    validate_answers,
+    validate_field_defs,
+)
 from src.helmsman.services.snapshots import (
     bump_content_version,
     bump_state_version,
@@ -43,6 +47,7 @@ MILESTONE_TITLE_MAX = 200
 MILESTONE_CONTENT_MAX = 20_000
 WORKSHOP_NAME_MAX = 120  # keep in sync with admin.NAME_MAX
 WORKSHOP_DESCRIPTION_MAX = 10_000  # keep in sync with admin.DESCRIPTION_MAX
+PARTICIPANT_NAME_MAX = 80  # keep in sync with participant.PARTICIPANT_NAME_MAX
 AUDIT_PAGE_LIMIT_MAX = 100
 AUDIT_PAGE_LIMIT_DEFAULT = 50
 STUCK_MINUTES_MIN = 2
@@ -177,6 +182,21 @@ class WorkshopPatchBody(BaseModel):
         return value
 
 
+class ParticipantPatchBody(BaseModel):
+    name: str | None = None
+    answers: dict[str, str] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        trimmed = value.strip()
+        if not (1 <= len(trimmed) <= PARTICIPANT_NAME_MAX):
+            raise ValueError(f"name must be 1–{PARTICIPANT_NAME_MAX} characters")
+        return trimmed
+
+
 class UndoBody(BaseModel):
     pass
 
@@ -296,6 +316,60 @@ def patch_workshop(
             },
             "version": version,
             "content_version": content_version,
+        }
+    )
+    session.commit()  # visible before the response reaches the client
+    return payload
+
+
+@router.patch("/participants/{participant_id}")
+def patch_participant(
+    admin_token: str,
+    participant_id: int,
+    body: ParticipantPatchBody,
+    session: Session = Depends(get_session),
+) -> dict:
+    workshop = workshop_by_admin_token(session, admin_token)
+    _guard_not_archived(workshop)
+    participant = session.scalar(
+        select(Participant).where(
+            Participant.id == participant_id,
+            Participant.workshop_id == workshop.id,
+        )
+    )
+    if participant is None:
+        raise api_error("not_found", "That participant is not in this workshop.", 404)
+
+    fields_set = body.model_fields_set
+    if "name" in fields_set and body.name is not None:
+        participant.name = body.name
+    if "answers" in fields_set and body.answers is not None:
+        try:
+            # Lenient: a facilitator fixing one answer shouldn't be forced to
+            # fill fields that became required after this person joined.
+            participant.answers_json = json.dumps(
+                validate_answers(workshop.join_form_json, body.answers, require_all=False)
+            )
+        except JoinFormError as exc:
+            raise api_error("validation_error", str(exc), 422)
+
+    version = bump_state_version(workshop)
+    record_action(
+        session,
+        workshop.id,
+        "facilitator",
+        "participant.edit",
+        {"participant_id": participant.id, "fields": sorted(fields_set)},
+    )
+    session.flush()
+    payload = ok(
+        {
+            "participant": {
+                "id": participant.id,
+                "name": participant.name,
+                "answers": json.loads(participant.answers_json or "{}"),
+            },
+            "version": version,
         }
     )
     session.commit()  # visible before the response reaches the client

@@ -407,6 +407,20 @@ export function facilitatorEditWorkshop(
   });
 }
 
+export function facilitatorEditParticipant(
+  adminToken: string,
+  participantId: number,
+  body: { name?: string; answers?: Record<string, string> },
+): Promise<{
+  participant: { id: number; name: string; answers: Record<string, string> };
+  version: number;
+}> {
+  return request(
+    `/api/f/${encodeURIComponent(adminToken)}/participants/${participantId}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+}
+
 export function facilitatorAddMilestone(
   adminToken: string,
   body: MilestoneInput,
