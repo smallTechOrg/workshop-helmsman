@@ -5,18 +5,19 @@ import { ApiError, facilitatorAudit, type AuditAction } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { timeAgo } from "@/lib/format";
 
+// Keys are the exact action names persisted by the backend (record_action).
 const ACTION_LABELS: Record<string, string> = {
   "workshop.create": "created the workshop",
   "help.answer": "answered a help request",
   "help.resolve": "resolved a help request",
   "broadcast.send": "sent a broadcast",
   "broadcast.clear": "cleared the broadcast",
-  "pause.set": "changed pause state",
-  "milestones.advance": "advanced participants",
-  "milestones.reorder": "reordered milestones",
-  "milestones.create": "added a milestone",
-  "milestones.edit": "edited a milestone",
-  "milestones.delete": "deleted a milestone",
+  "workshop.pause": "paused the workshop",
+  "workshop.resume": "unpaused the workshop",
+  "milestone.advance_all": "advanced everyone",
+  "milestone.advance_selected": "advanced selected participants",
+  "milestone.reorder": "reordered milestones",
+  "milestone.edit": "edited a milestone",
   "settings.update": "updated settings",
 };
 

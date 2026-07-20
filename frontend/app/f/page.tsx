@@ -33,7 +33,6 @@ import { CopyButton } from "@/components/ui/CopyButton";
 import { ConnectionIndicator } from "@/components/ui/ConnectionIndicator";
 import { WorkshopStatusBadge } from "@/components/ui/Badge";
 import { StubAction } from "@/components/ui/StubBadge";
-import { ConfirmDialog, useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { StatCards } from "@/components/facilitator/StatCards";
 import { MilestoneBars } from "@/components/facilitator/MilestoneBars";
@@ -47,7 +46,7 @@ import {
 } from "@/components/facilitator/BroadcastPanel";
 import { UndoBanner, type UndoState } from "@/components/facilitator/UndoBanner";
 import { PauseControl } from "@/components/facilitator/PauseControl";
-import { MilestoneManageModal } from "@/components/facilitator/MilestoneManageModal";
+import { MilestonesTab } from "@/components/facilitator/MilestonesTab";
 import { AuditPanel } from "@/components/facilitator/AuditPanel";
 import { StuckCard, BottleneckCard } from "@/components/facilitator/AlertsCards";
 import { PulseCard } from "@/components/facilitator/PulseCard";
@@ -336,30 +335,33 @@ function DashboardInner() {
     }
   };
 
-  // ---- advance (bulk, destructive → confirm) ---------------------------------
-  const advanceConfirm = useConfirm();
-  const [advanceMilestoneTitle, setAdvanceMilestoneTitle] = useState("");
-  const [advanceCount, setAdvanceCount] = useState<number | "all">("all");
+  // ---- advance (bulk) --------------------------------------------------------
+  // Fires immediately like pause/broadcast; the undo toast is the safety net for
+  // a fat-fingered advance (spec/roadmap.md Phase 2 — undo, not an upfront gate).
+  const [advanceBusy, setAdvanceBusy] = useState(false);
 
-  const runAdvance = (milestoneId: number, title: string, participantIds: number[] | null) => {
-    setAdvanceMilestoneTitle(title);
-    setAdvanceCount(participantIds ? participantIds.length : "all");
-    advanceConfirm.ask(async () => {
-      if (!token) return;
-      try {
-        const res = await facilitatorAdvance(token, milestoneId, participantIds);
-        pollNow();
-        setSelectedIds(new Set());
-        issueUndo(res.undoable_action_id, `Advanced ${res.affected_count} to "${title}"`);
-      } catch (err) {
-        toast.show(
-          err instanceof ApiError
-            ? `Couldn't advance that — ${err.message}`
-            : "Couldn't advance that — check your connection and try again.",
-          "error",
-        );
-      }
-    });
+  const runAdvance = async (
+    milestoneId: number,
+    title: string,
+    participantIds: number[] | null,
+  ) => {
+    if (!token || advanceBusy) return;
+    setAdvanceBusy(true);
+    try {
+      const res = await facilitatorAdvance(token, milestoneId, participantIds);
+      pollNow();
+      setSelectedIds(new Set());
+      issueUndo(res.undoable_action_id, `Advanced ${res.affected_count} to "${title}"`);
+    } catch (err) {
+      toast.show(
+        err instanceof ApiError
+          ? `Couldn't advance that — ${err.message}`
+          : "Couldn't advance that — check your connection and try again.",
+        "error",
+      );
+    } finally {
+      setAdvanceBusy(false);
+    }
   };
 
   // ---- participant selection (advance-selected) ------------------------------
@@ -437,7 +439,12 @@ function DashboardInner() {
               busy={pauseBusy}
               onToggle={onTogglePause}
             />
-            <Button variant="secondary" size="sm" onClick={() => setManageOpen(true)}>
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="milestones-tab"
+              onClick={() => setManageOpen(true)}
+            >
               Manage milestones
             </Button>
             <StubAction label="End workshop" />
@@ -564,34 +571,36 @@ function DashboardInner() {
               )}
             </Card>
 
-            <StuckCard alerts={data.alerts} />
-            <BottleneckCard alerts={data.alerts} />
+            <div data-testid="alerts-rail" className="space-y-4">
+              <StuckCard alerts={data.alerts} />
+              <BottleneckCard alerts={data.alerts} />
+            </div>
             <PulseCard pulse={data.pulse} />
           </div>
         </div>
       </main>
 
-      <MilestoneManageModal
-        open={manageOpen}
-        token={token}
-        milestones={wsPayload.milestones}
-        onClose={() => setManageOpen(false)}
-        onChanged={() => {
-          pollNow();
-          wsCvRef.current = -2;
-          setWsRetry((x) => x + 1);
-        }}
-      />
-
-      <ConfirmDialog
-        open={advanceConfirm.open}
-        busy={advanceConfirm.busy}
-        title={`Advance ${advanceCount === "all" ? "everyone" : advanceCount} to "${advanceMilestoneTitle}"?`}
-        body="This marks the milestone complete for the selected participants. You'll have 30 seconds to undo."
-        confirmLabel="Advance"
-        onConfirm={advanceConfirm.confirm}
-        onCancel={advanceConfirm.cancel}
-      />
+      {manageOpen && (
+        <section className="mx-auto w-full max-w-6xl px-4 pb-8 sm:px-6" aria-label="Manage milestones">
+          <Card className="p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-stone-900">Manage milestones</h2>
+              <Button variant="ghost" size="sm" onClick={() => setManageOpen(false)}>
+                Close
+              </Button>
+            </div>
+            <MilestonesTab
+              token={token}
+              milestones={wsPayload.milestones}
+              onChanged={() => {
+                pollNow();
+                wsCvRef.current = -2;
+                setWsRetry((x) => x + 1);
+              }}
+            />
+          </Card>
+        </section>
+      )}
 
       <BroadcastComposer
         open={broadcastOpen}
