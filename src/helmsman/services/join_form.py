@@ -69,10 +69,15 @@ def validate_field_defs(raw: object) -> list[dict]:
     return normalized
 
 
-def validate_answers(join_form_json: str, raw_answers: object) -> dict[str, str]:
+def validate_answers(
+    join_form_json: str, raw_answers: object, *, require_all: bool = True
+) -> dict[str, str]:
     """Validate participant answers against the workshop's join form.
 
-    Returns the normalized {key: value} dict (unknown keys dropped).
+    Returns the normalized {key: value} dict (unknown keys dropped). With
+    ``require_all=False`` a blank required field is allowed to stay blank —
+    used when a facilitator edits an existing participant and shouldn't be
+    forced to fill fields that became required after the participant joined.
     """
     fields = json.loads(join_form_json or "[]")
     answers = raw_answers if isinstance(raw_answers, dict) else {}
@@ -82,7 +87,7 @@ def validate_answers(join_form_json: str, raw_answers: object) -> dict[str, str]
         value = answers.get(key)
         value = value.strip() if isinstance(value, str) else ""
         if not value:
-            if field.get("required"):
+            if field.get("required") and require_all:
                 raise JoinFormError(f"'{label}' is required")
             continue
         if len(value) > TEXT_ANSWER_MAX:
