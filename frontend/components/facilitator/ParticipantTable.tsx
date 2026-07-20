@@ -50,17 +50,27 @@ export function ParticipantTable({
 
   const answeredFields = useAnsweredFields(joinForm, participants);
 
-  // Only offer a filter dropdown where it actually narrows anything down —
-  // a field with one distinct value (or none) isn't worth a control.
+  // Only offer a filter dropdown for *categorical* fields — ones whose values
+  // repeat across people (team, role, skill level). Fields where nearly every
+  // answer is unique (email, free-text) make a giant useless dropdown, so we
+  // require the distinct values to be both few and meaningfully repeating.
   const filterOptions = useMemo(() => {
     const options: Record<string, string[]> = {};
     for (const f of answeredFields) {
       const values = new Set<string>();
+      let answered = 0;
       for (const p of participants) {
         const v = (p.answers ?? {})[f.key]?.trim();
-        if (v) values.add(v);
+        if (v) {
+          values.add(v);
+          answered += 1;
+        }
       }
-      if (values.size > 1) {
+      // dropdown fields are categorical by definition; text fields qualify only
+      // when their answers repeat (distinct count well below who answered).
+      const categorical =
+        f.type === "dropdown" || (values.size <= 20 && values.size <= answered * 0.6);
+      if (values.size > 1 && categorical) {
         options[f.key] = [...values].sort((a, b) => a.localeCompare(b));
       }
     }
@@ -238,9 +248,9 @@ export function ParticipantTable({
                     <span className="sr-only">Select</span>
                   </th>
                 )}
-                <th scope="col" className="px-3 py-2 font-medium">Name</th>
+                <th scope="col" className="min-w-[14rem] px-3 py-2 font-medium">Name</th>
                 <th scope="col" className="px-3 py-2 font-medium">Progress</th>
-                <th scope="col" className="px-3 py-2 font-medium">Milestones</th>
+                <th scope="col" className="min-w-[12rem] px-3 py-2 font-medium">Milestones</th>
                 {answeredFields.map((f) => (
                   <th key={f.key} scope="col" className="px-3 py-2 font-medium">
                     {f.label}
@@ -274,7 +284,7 @@ export function ParticipantTable({
                       </td>
                     )}
                     <td className="px-3 py-2.5">
-                      <span className="font-medium whitespace-pre-wrap text-stone-800">
+                      <span className="font-medium whitespace-nowrap text-stone-800">
                         {p.name}
                       </span>
                       {p.open_help_count > 0 && (
@@ -298,7 +308,7 @@ export function ParticipantTable({
                       </div>
                     </td>
                     <td className="px-3 py-2.5">
-                      <div className="flex flex-wrap items-center gap-1">
+                      <div className="flex items-center gap-1">
                         {milestoneOrder.map((m) => {
                           const done = completed.has(m.milestone_id);
                           const current = p.current_milestone_id === m.milestone_id;
