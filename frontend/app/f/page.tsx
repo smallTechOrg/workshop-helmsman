@@ -506,6 +506,7 @@ function DashboardInner() {
                 participants={data.participants}
                 milestoneStats={data.milestone_stats}
                 joinUrl={ws.join_url}
+                joinForm={ws.join_form ?? []}
                 nowMs={nowMs}
                 selectable
                 selectedIds={selectedIds}
@@ -594,6 +595,7 @@ function DashboardInner() {
               token={token}
               name={ws.name}
               descriptionMd={ws.description_md}
+              joinForm={ws.join_form ?? []}
               onSaved={() => {
                 pollNow();
                 wsCvRef.current = -2;

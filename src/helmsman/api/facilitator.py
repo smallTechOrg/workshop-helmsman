@@ -22,6 +22,7 @@ from src.helmsman.db.models import (
 from src.helmsman.db.session import get_session
 from src.helmsman.security import workshop_by_admin_token
 from src.helmsman.services.audit import record_action
+from src.helmsman.services.join_form import JoinFormError, validate_field_defs
 from src.helmsman.services.snapshots import (
     bump_content_version,
     bump_state_version,
@@ -144,6 +145,17 @@ class MilestonePatchBody(BaseModel):
 class WorkshopPatchBody(BaseModel):
     name: str | None = None
     description_md: str | None = None
+    join_form: list[dict] | None = None
+
+    @field_validator("join_form")
+    @classmethod
+    def _check_join_form(cls, value: list[dict] | None) -> list[dict] | None:
+        if value is None:
+            return value
+        try:
+            return validate_field_defs(value)
+        except JoinFormError as exc:
+            raise ValueError(str(exc)) from exc
 
     @field_validator("name")
     @classmethod
@@ -227,6 +239,7 @@ def get_workshop(
                 "paused": workshop.paused,
                 "ai_enabled": workshop.ai_enabled,
                 "join_slug": workshop.join_slug,
+                "join_form": json.loads(workshop.join_form_json or "[]"),
                 "join_url": f"{base}/j/{workshop.join_slug}",
                 "facilitator_url": f"{base}/f/{workshop.admin_token}",
                 "created_at": iso_z(workshop.created_at),
@@ -259,6 +272,8 @@ def patch_workshop(
         workshop.name = body.name
     if "description_md" in fields_set and body.description_md is not None:
         workshop.description_md = body.description_md
+    if "join_form" in fields_set and body.join_form is not None:
+        workshop.join_form_json = json.dumps(body.join_form)
 
     # Description renders in the participant content payload; the name also
     # appears in every state payload — bump both so all pages refresh in one poll.

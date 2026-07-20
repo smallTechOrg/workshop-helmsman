@@ -1,5 +1,6 @@
 """Participant surface — /api/join/{slug} and /api/p/{token}/… (see spec/api.md)."""
 
+import json
 from datetime import timedelta
 
 import structlog
@@ -7,6 +8,8 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+
+from src.helmsman.services.join_form import JoinFormError, validate_answers
 
 from src.helmsman.api._common import api_error, iso_z, ok, request_base_url, utcnow, as_utc
 from src.helmsman.db.models import (
@@ -41,6 +44,7 @@ LAST_SEEN_TOUCH_SECONDS = 60
 
 class JoinBody(BaseModel):
     name: str
+    answers: dict[str, str] = {}
 
     @field_validator("name")
     @classmethod
@@ -142,6 +146,7 @@ def get_join_page(
                 "status": workshop.status,
                 "milestone_count": milestone_count or 0,
                 "participant_count": participant_count or 0,
+                "join_form": json.loads(workshop.join_form_json or "[]"),
             },
             "me": me,
         }
@@ -159,10 +164,16 @@ def join_workshop(
     workshop = workshop_by_join_slug(session, join_slug)
     _guard_not_archived(workshop)
 
+    try:
+        answers = validate_answers(workshop.join_form_json, body.answers)
+    except JoinFormError as exc:
+        raise api_error("validation_error", str(exc), 422)
+
     participant = Participant(
         workshop_id=workshop.id,
         name=body.name,
         token=generate_participant_token(),
+        answers_json=json.dumps(answers),
     )
     session.add(participant)
     bump_state_version(workshop)

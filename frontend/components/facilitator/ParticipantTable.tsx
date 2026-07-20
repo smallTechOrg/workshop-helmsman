@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { DashboardParticipant, MilestoneStat } from "@/lib/api";
+import type { DashboardParticipant, JoinFormField, MilestoneStat } from "@/lib/api";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -20,6 +20,7 @@ export function ParticipantTable({
   selectedIds,
   onToggleSelect,
   onAdvanceSelected,
+  joinForm = [],
 }: {
   participants: DashboardParticipant[];
   milestoneStats: MilestoneStat[];
@@ -30,7 +31,12 @@ export function ParticipantTable({
   selectedIds?: Set<number>;
   onToggleSelect?: (id: number) => void;
   onAdvanceSelected?: (milestoneId: number, milestoneTitle: string, ids: number[]) => void;
+  joinForm?: JoinFormField[];
 }) {
+  const answerLabels = useMemo(
+    () => Object.fromEntries(joinForm.map((f) => [f.key, f.label])),
+    [joinForm],
+  );
   const [advanceTarget, setAdvanceTarget] = useState<string>("");
   const [sort, setSort] = useState<SortKey>("joined");
   const [filter, setFilter] = useState("");
@@ -209,6 +215,21 @@ export function ParticipantTable({
                         <Badge tone="warning" className="ml-2">
                           {p.open_help_count} help
                         </Badge>
+                      )}
+                      {Object.keys(p.answers ?? {}).length > 0 && (
+                        <div
+                          data-testid="participant-answers"
+                          className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5"
+                        >
+                          {Object.entries(p.answers).map(([key, value]) => (
+                            <span key={key} className="text-xs text-stone-500">
+                              <span className="text-stone-400">
+                                {answerLabels[key] ?? key}:
+                              </span>{" "}
+                              {value}
+                            </span>
+                          ))}
+                        </div>
                       )}
                     </td>
                     <td data-testid="participant-progress" className="px-3 py-2.5">
