@@ -444,9 +444,15 @@ function DashboardInner() {
               variant="secondary"
               size="sm"
               data-testid="milestones-tab"
-              onClick={() => setManageOpen(true)}
+              onClick={() => {
+                setManageOpen(true);
+                setTimeout(
+                  () => document.getElementById("manage-workshop")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                  50,
+                );
+              }}
             >
-              Manage milestones
+              Manage workshop
             </Button>
             <StubAction label="End workshop" />
             <StubAction label="AI help-desk" />
@@ -583,7 +589,7 @@ function DashboardInner() {
       </main>
 
       {manageOpen && (
-        <section className="mx-auto w-full max-w-6xl px-4 pb-8 sm:px-6" aria-label="Manage workshop">
+        <section id="manage-workshop" className="mx-auto w-full max-w-6xl px-4 pb-8 sm:px-6" aria-label="Manage workshop">
           <Card className="p-5">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-stone-900">Manage workshop</h2>
