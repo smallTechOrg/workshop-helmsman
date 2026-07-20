@@ -52,32 +52,19 @@ export function ParticipantTable({
 
   const answeredFields = useAnsweredFields(joinForm, participants);
 
-  // Offer a filter dropdown for any field with a small set of repeating values
-  // (designation, expertise, coding agent, team…). Skip only fields that behave
-  // like unique identifiers — emails and other all-distinct free text — where a
-  // dropdown would just list everyone once.
-  const MAX_FILTER_VALUES = 40;
+  // Filters are for the categorical questions — i.e. dropdown fields, which
+  // have a fixed, known set of choices. Free-text fields (email, name…) never
+  // get a filter. Show a dropdown's filter once its answers actually vary.
   const filterOptions = useMemo(() => {
     const options: Record<string, string[]> = {};
     for (const f of answeredFields) {
+      if (f.type !== "dropdown") continue;
       const values = new Set<string>();
-      let answered = 0;
-      let emailish = 0;
       for (const p of participants) {
         const v = (p.answers ?? {})[f.key]?.trim();
-        if (v) {
-          values.add(v);
-          answered += 1;
-          if (v.includes("@")) emailish += 1;
-        }
+        if (v) values.add(v);
       }
-      const looksLikeEmail = emailish >= answered * 0.5; // most values are emails
-      // "unique identifier" = every answer distinct once we have a real sample.
-      const allUniqueAtScale = values.size === answered && answered >= 8;
-      const usable =
-        f.type === "dropdown" ||
-        (values.size <= MAX_FILTER_VALUES && !looksLikeEmail && !allUniqueAtScale);
-      if (values.size > 1 && usable) {
+      if (values.size > 1) {
         options[f.key] = [...values].sort((a, b) => a.localeCompare(b));
       }
     }
