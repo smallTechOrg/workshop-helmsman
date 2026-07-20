@@ -1,11 +1,32 @@
-*.db
-*.db-journal
-*.log
+# secrets
+.env
+
+# python
+__pycache__/
 *.pyc
 *.pyo
-.DS_Store
-.env
-/tmp/
-__pycache__/
-data/
+.venv/
 venv/
+.pytest_cache/
+
+# runtime data (SQLite lives here)
+data/*
+!data/.gitkeep
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.log
+
+# node / frontend
+node_modules/
+frontend/.next/
+frontend/out/
+
+# playwright
+test-results/
+playwright-report/
+
+# misc
+.DS_Store
+/tmp/

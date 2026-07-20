@@ -1,52 +1,68 @@
 # Workshop Helmsman
 
-A self-hosted workshop tracker for remote sessions. Facilitators stand up a
-workshop, get a participant link (slug) and a separate admin link (token),
-and watch participants move through milestones in real time.
+Self-hosted workshop assistant for facilitator-led hands-on technical labs: a facilitator creates a workshop with content-rich milestones, participants join with just a name, and a genuinely live dashboard tracks the whole room — with a built-in help desk.
 
-Phase 1 ships the full single-workshop happy path on a single VM with no
-external services. No LLM, no external APIs — everything is local SQLite.
+> **All commands run from the repo root.** Every Python command is prefixed with `uv run` — bare commands will fail.
 
-## Stack
+## Requirements
 
-- Python 3.11 / FastAPI / Uvicorn
-- SQLite via SQLAlchemy 2.x
-- Jinja2 templates, vanilla JS, one CSS file
-- Polling-based live updates (4 s)
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/)
+- Node.js 22 and [pnpm](https://pnpm.io/)
 
-## Run locally
+## Setup (once)
 
-```sh
-cd /Users/sai/workshop-helmsman
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
-venv/bin/python -m src        # serves on http://localhost:8001
+```bash
+# from the repo root
+cp .env.example .env          # then set HELMSMAN_ADMIN_KEY (any strong string, >=16 chars)
+uv sync
+(cd frontend && pnpm install)
+pnpm install                  # root: Playwright for e2e tests
+pnpm exec playwright install chromium   # only needed to run the e2e suite
 ```
 
-The first boot creates `./data/helmsman.db` automatically.
+## Database
 
-## Endpoints (Phase 1)
+```bash
+# from the repo root
+uv run alembic upgrade head
+uv run alembic current        # MUST print a revision hash — blank output means no migration was applied
+```
 
-| Route                                  | Purpose                                      |
-| -------------------------------------- | -------------------------------------------- |
-| `GET /`                                | Landing page                                 |
-| `GET /admin/new` · `POST /admin/new`   | Facilitator creates a workshop               |
-| `GET /admin/<admin_token>`             | Live facilitator dashboard                   |
-| `GET /w/<participant_slug>`            | Participant join (asks for their name)       |
-| `GET /w/<participant_slug>/me`         | Personal progress tracker + leaderboard     |
-| `GET /w/<participant_slug>/data?since=`| JSON poll feed (used by the participant UI)  |
-| `GET /healthz`                         | `{"status":"ok","db":"ok"}` liveness probe   |
+## Build the UI and run
 
-## Phase 1 stubs (clearly labelled)
+```bash
+# from the repo root
+(cd frontend && pnpm build)
+uv run python -m src
+```
 
-- `GET /admin/<token>/edit`         → "Coming in Phase 2"
-- `GET /admin/<token>/export.csv`   → "Coming in Phase 2"
-- `POST /admin/<token>/clone`       → "Coming in Phase 2"
-- `GET /workshops`                  → read-only archive (no admin actions)
+Open **http://localhost:8001/app/** — enter your `HELMSMAN_ADMIN_KEY` to reach the Admin Home.
 
-## Deploy
+Share links: join `http://localhost:8001/j/<slug>` · participant personal link `/p/<token>` · facilitator dashboard `/f/<token>`.
 
-`deploy/systemd/workshop-helmsman.service` and `deploy/docker-compose.yml`
-are both scaffolded. Pick one. The Phase-1 VM target is
-`workshop.smalltech.in`; this repo boots cleanly on `:8001` for local
-testing with no extra config.
+## Tests
+
+```bash
+# from the repo root
+uv run pytest tests/unit tests/integration -q
+
+# e2e (requires the server running in another terminal: uv run python -m src)
+pnpm exec playwright test tests/e2e --reporter=line
+```
+
+## Environment variables
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `DATABASE_URL` | no | `sqlite:///data/helmsman.db` | SQLAlchemy URL; PostgreSQL-ready |
+| `PORT` | no | `8001` | HTTP port |
+| `HELMSMAN_ADMIN_KEY` | **yes** | — | Facilitator access key for Admin Home |
+| `HELMSMAN_BASE_URL` | no | derived from request | Absolute base for generated share links |
+| `HELMSMAN_LOG_LEVEL` | no | `INFO` | Log level (structlog, JSON to stdout) |
+| `OPENROUTER_API_KEY` | no | — | AI help-desk (Phase 4); absent = fully air-gapped |
+| `HELMSMAN_AI_MODEL` | no | `anthropic/claude-sonnet-4-6` | OpenRouter model id |
+| `HELMSMAN_AI_CONFIDENCE` | no | `0.75` | AI auto-answer confidence threshold |
+
+## Status
+
+Phase 1 — **Core Live Loop**: create workshop → join (cookie auto-resume + personal links) → content-rich milestones → live dashboard → manual help desk. Broadcast, Pause, End workshop, AI help-desk, Spend, stuck/bottleneck/pulse cards, Audit, Templates are visible as clearly-labelled **"Coming in a later phase"** stubs. The spec in `spec/` is the source of truth.

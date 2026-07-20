@@ -1,19 +1,19 @@
-"""Module entrypoint — boots uvicorn against 0.0.0.0:8001."""
-
-import os
+"""Boot the Workshop Helmsman server: `uv run python -m src` (from the repo root)."""
 
 import uvicorn
 
+from src.helmsman.api import create_app
+from src.helmsman.config.settings import get_settings
+
 
 def main() -> None:
-    host = os.environ.get("BIND_HOST", "0.0.0.0")
-    port = int(os.environ.get("BIND_PORT", "8001"))
+    settings = get_settings()
     uvicorn.run(
-        "src.main:app",
-        host=host,
-        port=port,
-        log_level=os.environ.get("LOG_LEVEL", "info"),
-        reload=False,
+        create_app(),
+        host="0.0.0.0",
+        port=settings.port,
+        log_level=settings.resolved_log_level.lower(),
+        access_log=False,
     )
 
 

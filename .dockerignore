@@ -1,0 +1,23 @@
+# Keep the build context small and deterministic.
+.git
+.github
+**/node_modules
+frontend/.next
+frontend/out
+frontend/.turbo
+**/__pycache__
+*.pyc
+.venv
+venv
+data
+*.db
+.env
+.env.*
+!.env.example
+test-results
+playwright-report
+tests/e2e
+spec
+harness
+*.md
+!README.md
