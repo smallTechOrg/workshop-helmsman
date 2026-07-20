@@ -11,6 +11,16 @@ import { cn, timeAgo } from "@/lib/format";
 
 type SortKey = "joined" | "name" | "progress";
 
+/** Fields get their own column only when at least one participant answered
+ * them — an all-blank column wastes space a workshop of 200 can't spare. */
+function useAnsweredFields(joinForm: JoinFormField[], participants: DashboardParticipant[]) {
+  return useMemo(
+    () =>
+      joinForm.filter((f) => participants.some((p) => (p.answers ?? {})[f.key]?.trim())),
+    [joinForm, participants],
+  );
+}
+
 export function ParticipantTable({
   participants,
   milestoneStats,
@@ -33,24 +43,45 @@ export function ParticipantTable({
   onAdvanceSelected?: (milestoneId: number, milestoneTitle: string, ids: number[]) => void;
   joinForm?: JoinFormField[];
 }) {
-  const answerLabels = useMemo(
-    () => Object.fromEntries(joinForm.map((f) => [f.key, f.label])),
-    [joinForm],
-  );
   const [advanceTarget, setAdvanceTarget] = useState<string>("");
   const [sort, setSort] = useState<SortKey>("joined");
   const [filter, setFilter] = useState("");
+  const [answerFilters, setAnswerFilters] = useState<Record<string, string>>({});
+
+  const answeredFields = useAnsweredFields(joinForm, participants);
+
+  // Only offer a filter dropdown where it actually narrows anything down —
+  // a field with one distinct value (or none) isn't worth a control.
+  const filterOptions = useMemo(() => {
+    const options: Record<string, string[]> = {};
+    for (const f of answeredFields) {
+      const values = new Set<string>();
+      for (const p of participants) {
+        const v = (p.answers ?? {})[f.key]?.trim();
+        if (v) values.add(v);
+      }
+      if (values.size > 1) {
+        options[f.key] = [...values].sort((a, b) => a.localeCompare(b));
+      }
+    }
+    return options;
+  }, [answeredFields, participants]);
 
   const milestoneOrder = useMemo(
     () => [...milestoneStats].sort((a, b) => a.position - b.position),
     [milestoneStats],
   );
 
+  const activeAnswerFilters = Object.entries(answerFilters).filter(([, v]) => v !== "");
+
   const rows = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    const filtered = q
+    let filtered = q
       ? participants.filter((p) => p.name.toLowerCase().includes(q))
       : [...participants];
+    for (const [key, value] of activeAnswerFilters) {
+      filtered = filtered.filter((p) => (p.answers ?? {})[key] === value);
+    }
     switch (sort) {
       case "name":
         filtered.sort((a, b) => a.name.localeCompare(b.name));
@@ -67,7 +98,8 @@ export function ParticipantTable({
         break;
     }
     return filtered;
-  }, [participants, sort, filter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [participants, sort, filter, JSON.stringify(answerFilters)]);
 
   if (participants.length === 0) {
     return (
@@ -93,8 +125,33 @@ export function ParticipantTable({
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter by name…"
-          className="w-48 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-900 placeholder:text-stone-400 focus:border-brand-500"
+          className="w-40 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-900 placeholder:text-stone-400 focus:border-brand-500"
         />
+        {Object.entries(filterOptions).map(([key, values]) => {
+          const field = answeredFields.find((f) => f.key === key)!;
+          return (
+            <select
+              key={key}
+              aria-label={`Filter by ${field.label}`}
+              data-testid="participant-answer-filter"
+              value={answerFilters[key] ?? ""}
+              onChange={(e) => setAnswerFilters((prev) => ({ ...prev, [key]: e.target.value }))}
+              className={cn(
+                "rounded-lg border bg-white px-2 py-1.5 text-sm",
+                answerFilters[key]
+                  ? "border-brand-400 text-brand-800"
+                  : "border-stone-300 text-stone-600",
+              )}
+            >
+              <option value="">All {field.label}</option>
+              {values.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          );
+        })}
         <div
           role="group"
           aria-label="Sort participants"
@@ -167,7 +224,9 @@ export function ParticipantTable({
 
       {rows.length === 0 ? (
         <p className="rounded-lg border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-center text-sm text-stone-500">
-          No participant matches “{filter.trim()}”.
+          {filter.trim()
+            ? `No participant matches "${filter.trim()}".`
+            : "No participant matches these filters."}
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-stone-200">
@@ -182,9 +241,16 @@ export function ParticipantTable({
                 <th scope="col" className="px-3 py-2 font-medium">Name</th>
                 <th scope="col" className="px-3 py-2 font-medium">Progress</th>
                 <th scope="col" className="px-3 py-2 font-medium">Milestones</th>
+                {answeredFields.map((f) => (
+                  <th key={f.key} scope="col" className="px-3 py-2 font-medium">
+                    {f.label}
+                  </th>
+                ))}
                 <th scope="col" className="px-3 py-2 font-medium">Joined</th>
                 <th scope="col" className="px-3 py-2 font-medium">Last seen</th>
-                <th scope="col" className="px-3 py-2 font-medium">Personal link</th>
+                <th scope="col" className="px-3 py-2 font-medium">
+                  <span className="sr-only">Personal link</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -215,21 +281,6 @@ export function ParticipantTable({
                         <Badge tone="warning" className="ml-2">
                           {p.open_help_count} help
                         </Badge>
-                      )}
-                      {Object.keys(p.answers ?? {}).length > 0 && (
-                        <div
-                          data-testid="participant-answers"
-                          className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5"
-                        >
-                          {Object.entries(p.answers).map(([key, value]) => (
-                            <span key={key} className="text-xs text-stone-500">
-                              <span className="text-stone-400">
-                                {answerLabels[key] ?? key}:
-                              </span>{" "}
-                              {value}
-                            </span>
-                          ))}
-                        </div>
                       )}
                     </td>
                     <td data-testid="participant-progress" className="px-3 py-2.5">
@@ -270,6 +321,18 @@ export function ParticipantTable({
                         })}
                       </div>
                     </td>
+                    {answeredFields.map((f) => (
+                      <td
+                        key={f.key}
+                        data-testid="participant-answer-cell"
+                        className="max-w-[10rem] truncate px-3 py-2.5 text-stone-600"
+                        title={(p.answers ?? {})[f.key] ?? ""}
+                      >
+                        {(p.answers ?? {})[f.key] || (
+                          <span className="text-stone-300">—</span>
+                        )}
+                      </td>
+                    ))}
                     <td className="px-3 py-2.5 whitespace-nowrap text-stone-500">
                       {timeAgo(p.joined_at, nowMs)}
                     </td>
@@ -277,18 +340,13 @@ export function ParticipantTable({
                       {timeAgo(p.last_seen_at, nowMs)}
                     </td>
                     <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          data-testid="participant-personal-link"
-                          className="max-w-[13rem] truncate font-mono text-xs text-stone-500"
-                        >
-                          {p.participant_url}
-                        </span>
-                        <CopyButton
-                          text={p.participant_url}
-                          aria-label={`Copy ${p.name}'s personal link`}
-                        />
-                      </div>
+                      <CopyButton
+                        text={p.participant_url}
+                        iconOnly
+                        data-testid="participant-personal-link"
+                        title={`Copy ${p.name}'s personal link`}
+                        aria-label={`Copy ${p.name}'s personal link`}
+                      />
                     </td>
                   </tr>
                 );
