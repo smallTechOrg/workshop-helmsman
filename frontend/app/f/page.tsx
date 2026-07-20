@@ -47,6 +47,7 @@ import {
 import { UndoBanner, type UndoState } from "@/components/facilitator/UndoBanner";
 import { PauseControl } from "@/components/facilitator/PauseControl";
 import { MilestonesTab } from "@/components/facilitator/MilestonesTab";
+import { WorkshopDetailsForm } from "@/components/facilitator/WorkshopDetailsForm";
 import { AuditPanel } from "@/components/facilitator/AuditPanel";
 import { StuckCard, BottleneckCard } from "@/components/facilitator/AlertsCards";
 import { PulseCard } from "@/components/facilitator/PulseCard";
@@ -581,14 +582,24 @@ function DashboardInner() {
       </main>
 
       {manageOpen && (
-        <section className="mx-auto w-full max-w-6xl px-4 pb-8 sm:px-6" aria-label="Manage milestones">
+        <section className="mx-auto w-full max-w-6xl px-4 pb-8 sm:px-6" aria-label="Manage workshop">
           <Card className="p-5">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-stone-900">Manage milestones</h2>
+              <h2 className="text-lg font-semibold text-stone-900">Manage workshop</h2>
               <Button variant="ghost" size="sm" onClick={() => setManageOpen(false)}>
                 Close
               </Button>
             </div>
+            <WorkshopDetailsForm
+              token={token}
+              name={ws.name}
+              descriptionMd={ws.description_md}
+              onSaved={() => {
+                pollNow();
+                wsCvRef.current = -2;
+                setWsRetry((x) => x + 1);
+              }}
+            />
             <MilestonesTab
               token={token}
               milestones={wsPayload.milestones}

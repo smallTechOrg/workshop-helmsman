@@ -108,3 +108,35 @@ def test_reorder_rejects_non_permutation(client, workshop):
         f"/api/f/{admin_token}/milestones/reorder", json={"milestone_ids": with_unknown_id}
     )
     assert result2.status_code == 422
+
+
+def test_patch_workshop_name_and_description(client, make_client, workshop, join_participant):
+    token = workshop["admin_token"]
+
+    res = client.patch(
+        f"/api/f/{token}/workshop",
+        json={"name": "  Renamed Workshop  ", "description_md": "New **intro** text."},
+    )
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert data["workshop"]["name"] == "Renamed Workshop"  # trimmed
+    assert data["workshop"]["description_md"] == "New **intro** text."
+
+    # Participants see both changes: name in state, description in content.
+    b = make_client()
+    p = join_participant(b, workshop["join_slug"], "Viewer")
+    state = b.get(f"/api/p/{p['participant_token']}/state").json()["data"]
+    assert state["workshop"]["name"] == "Renamed Workshop"
+    content = b.get(f"/api/p/{p['participant_token']}/content").json()["data"]
+    assert content["workshop"]["description_md"] == "New **intro** text."
+
+    # Audited.
+    audit = client.get(f"/api/f/{token}/audit").json()["data"]
+    assert any(row["action"] == "workshop.edit" for row in audit["actions"])
+
+    # Validation: empty name rejected, oversize description rejected.
+    assert client.patch(f"/api/f/{token}/workshop", json={"name": "   "}).status_code == 422
+    assert (
+        client.patch(f"/api/f/{token}/workshop", json={"description_md": "x" * 10_001}).status_code
+        == 422
+    )

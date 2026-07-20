@@ -394,6 +394,16 @@ export function facilitatorReorder(
   });
 }
 
+export function facilitatorEditWorkshop(
+  adminToken: string,
+  body: { name?: string; description_md?: string },
+): Promise<{ workshop: { id: number; name: string; description_md: string }; version: number }> {
+  return request(`/api/f/${encodeURIComponent(adminToken)}/workshop`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
 export function facilitatorAddMilestone(
   adminToken: string,
   body: MilestoneInput,
