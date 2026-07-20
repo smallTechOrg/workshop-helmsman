@@ -40,6 +40,8 @@ AUDIT_EXCERPT_MAX = 200
 BROADCAST_MESSAGE_MAX = 4000
 MILESTONE_TITLE_MAX = 200
 MILESTONE_CONTENT_MAX = 20_000
+WORKSHOP_NAME_MAX = 120  # keep in sync with admin.NAME_MAX
+WORKSHOP_DESCRIPTION_MAX = 10_000  # keep in sync with admin.DESCRIPTION_MAX
 AUDIT_PAGE_LIMIT_MAX = 100
 AUDIT_PAGE_LIMIT_DEFAULT = 50
 STUCK_MINUTES_MIN = 2
@@ -139,6 +141,30 @@ class MilestonePatchBody(BaseModel):
         return value
 
 
+class WorkshopPatchBody(BaseModel):
+    name: str | None = None
+    description_md: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        trimmed = value.strip()
+        if not (1 <= len(trimmed) <= WORKSHOP_NAME_MAX):
+            raise ValueError(f"name must be 1–{WORKSHOP_NAME_MAX} characters")
+        return trimmed
+
+    @field_validator("description_md")
+    @classmethod
+    def _check_description(cls, value: str | None) -> str | None:
+        if value is not None and len(value) > WORKSHOP_DESCRIPTION_MAX:
+            raise ValueError(
+                f"description_md must be at most {WORKSHOP_DESCRIPTION_MAX} characters"
+            )
+        return value
+
+
 class UndoBody(BaseModel):
     pass
 
@@ -217,6 +243,48 @@ def get_workshop(
             ],
         }
     )
+
+
+@router.patch("/workshop")
+def patch_workshop(
+    admin_token: str,
+    body: WorkshopPatchBody,
+    session: Session = Depends(get_session),
+) -> dict:
+    workshop = workshop_by_admin_token(session, admin_token)
+    _guard_not_archived(workshop)
+
+    fields_set = body.model_fields_set
+    if "name" in fields_set and body.name is not None:
+        workshop.name = body.name
+    if "description_md" in fields_set and body.description_md is not None:
+        workshop.description_md = body.description_md
+
+    # Description renders in the participant content payload; the name also
+    # appears in every state payload — bump both so all pages refresh in one poll.
+    content_version = bump_content_version(workshop)
+    version = bump_state_version(workshop)
+    record_action(
+        session,
+        workshop.id,
+        "facilitator",
+        "workshop.edit",
+        {"fields": sorted(fields_set)},
+    )
+    session.flush()
+    payload = ok(
+        {
+            "workshop": {
+                "id": workshop.id,
+                "name": workshop.name,
+                "description_md": workshop.description_md,
+            },
+            "version": version,
+            "content_version": content_version,
+        }
+    )
+    session.commit()  # visible before the response reaches the client
+    return payload
 
 
 @router.get("/dashboard")
