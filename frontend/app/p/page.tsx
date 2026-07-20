@@ -313,12 +313,13 @@ function TrackerInner() {
           </h1>
           <ConnectionIndicator reconnecting={reconnecting} />
           <div className="flex items-center gap-2">
-            <ProgressBar
-              value={progressPct}
-              data-testid="progress-bar"
-              className="w-36"
-              label="Your progress"
-            />
+            <div className="w-36 shrink-0">
+              <ProgressBar
+                value={progressPct}
+                data-testid="progress-bar"
+                label="Your progress"
+              />
+            </div>
             <span className="text-sm font-medium whitespace-nowrap text-stone-600 tabular-nums">
               {doneCount} / {total}
             </span>

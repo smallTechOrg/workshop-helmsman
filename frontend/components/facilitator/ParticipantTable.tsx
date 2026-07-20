@@ -213,12 +213,13 @@ export function ParticipantTable({
                     </td>
                     <td data-testid="participant-progress" className="px-3 py-2.5">
                       <div className="flex items-center gap-2">
-                        <ProgressBar
-                          value={p.progress_pct}
-                          size="sm"
-                          className="w-24"
-                          label={`${p.name}'s progress`}
-                        />
+                        <div className="w-24 shrink-0">
+                          <ProgressBar
+                            value={p.progress_pct}
+                            size="sm"
+                            label={`${p.name}'s progress`}
+                          />
+                        </div>
                         <span className="text-stone-600 tabular-nums">
                           {p.completed_count}/{totalMilestones}
                         </span>
