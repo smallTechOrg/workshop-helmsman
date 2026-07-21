@@ -51,7 +51,7 @@ import { MilestonesTab } from "@/components/facilitator/MilestonesTab";
 import { WorkshopDetailsForm } from "@/components/facilitator/WorkshopDetailsForm";
 import { EditParticipantModal } from "@/components/facilitator/EditParticipantModal";
 import { AuditPanel } from "@/components/facilitator/AuditPanel";
-import { StuckCard, BottleneckCard } from "@/components/facilitator/AlertsCards";
+import { BottleneckCard } from "@/components/facilitator/AlertsCards";
 import { PulseCard } from "@/components/facilitator/PulseCard";
 import { SettingsControl } from "@/components/facilitator/SettingsControl";
 
@@ -477,8 +477,26 @@ function DashboardInner() {
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6">
         <StatCards stats={data.stats} />
 
-        <div className="grid items-start gap-6 lg:grid-cols-3">
-          <div className="space-y-6 lg:col-span-2">
+        <Card className="p-5">
+          <h2 className="mb-3 text-base font-semibold text-stone-900">
+            Participants
+          </h2>
+          <ParticipantTable
+            participants={data.participants}
+            milestoneStats={data.milestone_stats}
+            joinUrl={ws.join_url}
+            joinForm={ws.join_form ?? []}
+            onEditParticipant={setEditingParticipant}
+            nowMs={nowMs}
+            selectable
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onAdvanceSelected={(id, title, ids) => runAdvance(id, title, ids)}
+          />
+        </Card>
+
+        <div className="grid items-start gap-6 lg:grid-cols-2">
+          <div className="space-y-6">
             <Card className="p-5">
               <h2 className="mb-3 text-base font-semibold text-stone-900">
                 Milestone completion
@@ -508,24 +526,6 @@ function DashboardInner() {
               ) : (
                 <DistributionChart distribution={data.distribution} />
               )}
-            </Card>
-
-            <Card className="p-5">
-              <h2 className="mb-3 text-base font-semibold text-stone-900">
-                Participants
-              </h2>
-              <ParticipantTable
-                participants={data.participants}
-                milestoneStats={data.milestone_stats}
-                joinUrl={ws.join_url}
-                joinForm={ws.join_form ?? []}
-                onEditParticipant={setEditingParticipant}
-                nowMs={nowMs}
-                selectable
-                selectedIds={selectedIds}
-                onToggleSelect={toggleSelect}
-                onAdvanceSelected={(id, title, ids) => runAdvance(id, title, ids)}
-              />
             </Card>
           </div>
 
@@ -587,7 +587,6 @@ function DashboardInner() {
             </Card>
 
             <div data-testid="alerts-rail" className="space-y-4">
-              <StuckCard alerts={data.alerts} />
               <BottleneckCard alerts={data.alerts} />
             </div>
             <PulseCard pulse={data.pulse} />

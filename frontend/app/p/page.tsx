@@ -371,16 +371,6 @@ function TrackerInner() {
 
         <div className="space-y-4">
           <Card className="p-4">
-            <h2 className="mb-2 text-base font-semibold text-stone-900">
-              Leaderboard
-            </h2>
-            <Leaderboard
-              rows={data.leaderboard}
-              me={data.me}
-              participantsCount={data.participants_count ?? data.leaderboard.length}
-            />
-          </Card>
-          <Card className="p-4">
             <HelpPanel
               requests={helpRequests}
               nowMs={nowMs}
@@ -388,6 +378,16 @@ function TrackerInner() {
               archived={archived}
               onSubmit={onSubmitHelp}
               onResolve={onResolveHelp}
+            />
+          </Card>
+          <Card className="p-4">
+            <h2 className="mb-2 text-base font-semibold text-stone-900">
+              Leaderboard
+            </h2>
+            <Leaderboard
+              rows={data.leaderboard}
+              me={data.me}
+              participantsCount={data.participants_count ?? data.leaderboard.length}
             />
           </Card>
         </div>
