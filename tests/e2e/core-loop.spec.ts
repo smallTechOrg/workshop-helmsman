@@ -376,10 +376,12 @@ test.describe.serial('Phase 1 — core live loop', () => {
     await expect(device3.getByTestId('leaderboard')).toContainText('Priya');
     await expect(device3.getByTestId('leaderboard')).toContainText('Marco');
 
-    // The resolved help request travels with her, answer and all.
+    // The resolved help request travels with her, answer and all. Resolved
+    // threads collapse by default (to keep the leaderboard in view) — expand it.
     const item = device3.getByTestId('help-item').filter({ hasText: HELP_MESSAGE }).first();
     await expect(item).toBeVisible();
     await expect(item.getByTestId('help-status')).toContainText(/resolved/i);
+    await item.getByTestId('help-thread-toggle').click();
     const answerCode = item.getByTestId('help-answer').first().locator('pre code');
     await expect(answerCode).toBeVisible();
     await expect(answerCode).toContainText('grep API_KEY .env');

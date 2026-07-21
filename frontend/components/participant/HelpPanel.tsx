@@ -30,6 +30,18 @@ function HelpThread({
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
+  // Resolved threads collapse by default so a stack of them doesn't push the
+  // leaderboard off-screen; open/answered ones stay expanded. Reopening (or the
+  // facilitator resolving) re-syncs the default, while a manual toggle sticks.
+  const [expanded, setExpanded] = useState(request.status !== "resolved");
+  const prevStatus = useRef(request.status);
+  useEffect(() => {
+    if (prevStatus.current !== request.status) {
+      setExpanded(request.status !== "resolved");
+      prevStatus.current = request.status;
+    }
+  }, [request.status]);
+
   const sendReply = async () => {
     const text = reply.trim();
     if (text === "") {
@@ -54,18 +66,46 @@ function HelpThread({
       data-testid="help-item"
       className="rounded-lg border border-stone-200 bg-white p-3"
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+      <button
+        type="button"
+        data-testid="help-thread-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className={cn(
+              "size-4 shrink-0 text-stone-400 transition-transform",
+              expanded && "rotate-180",
+            )}
+          >
+            <path
+              fillRule="evenodd"
+              d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z"
+              clipRule="evenodd"
+            />
+          </svg>
           <HelpStatusBadge status={request.status} data-testid="help-status" />
           {request.status === "resolved" && request.resolved_by && (
-            <span className="text-xs text-stone-400">
+            <span className="shrink-0 text-xs text-stone-400">
               resolved by {request.resolved_by === "participant" ? "you" : "facilitator"}
             </span>
           )}
+          {!expanded && (
+            <span className="min-w-0 truncate text-xs text-stone-500">
+              {request.message}
+            </span>
+          )}
         </div>
-        <span className="text-xs text-stone-400">{timeAgo(request.created_at, nowMs)}</span>
-      </div>
+        <span className="shrink-0 text-xs text-stone-400">{timeAgo(request.created_at, nowMs)}</span>
+      </button>
 
+      {!expanded ? null : (
+      <>
       {/* Thread: the original question is the participant's first message, then
           every reply in order, aligned by who wrote it. */}
       <div className="mt-2 space-y-2">
@@ -152,6 +192,8 @@ function HelpThread({
             )}
           </div>
         </div>
+      )}
+      </>
       )}
     </li>
   );

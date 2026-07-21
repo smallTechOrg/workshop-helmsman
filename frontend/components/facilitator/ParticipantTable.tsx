@@ -9,7 +9,7 @@ import { CopyButton } from "@/components/ui/CopyButton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn, timeAgo } from "@/lib/format";
 
-type SortKey = "joined" | "name" | "progress";
+type SortKey = "joined" | "name" | "progress" | "lastseen";
 
 /** Fields get their own column only when at least one participant answered
  * them — an all-blank column wastes space a workshop of 200 can't spare. */
@@ -46,7 +46,7 @@ export function ParticipantTable({
   joinForm?: JoinFormField[];
 }) {
   const [advanceTarget, setAdvanceTarget] = useState<string>("");
-  const [sort, setSort] = useState<SortKey>("joined");
+  const [sort, setSort] = useState<SortKey>("progress");
   const [filter, setFilter] = useState("");
   const [answerFilters, setAnswerFilters] = useState<Record<string, string>>({});
 
@@ -95,6 +95,10 @@ export function ParticipantTable({
           (a, b) =>
             b.completed_count - a.completed_count || a.name.localeCompare(b.name),
         );
+        break;
+      case "lastseen":
+        // Most recently active on top.
+        filtered.sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at));
         break;
       case "joined":
       default:
@@ -163,9 +167,10 @@ export function ParticipantTable({
         >
           {(
             [
+              ["progress", "Progress"],
+              ["lastseen", "Last seen"],
               ["joined", "Joined"],
               ["name", "Name"],
-              ["progress", "Progress"],
             ] as [SortKey, string][]
           ).map(([key, label]) => (
             <button
