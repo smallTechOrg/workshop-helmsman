@@ -77,7 +77,7 @@ async function request<T>(
 
 export type WorkshopStatus = "live" | "grace" | "archived";
 export type HelpStatus = "open" | "answered" | "resolved";
-export type AnswerSource = "facilitator" | "ai";
+export type AnswerSource = "facilitator" | "ai" | "participant";
 
 /** Unchanged short-circuit for versioned poll endpoints. */
 export interface PollUnchanged {
@@ -243,6 +243,7 @@ export interface HelpQueueItem {
   milestone_title: string | null;
   message: string;
   status: HelpStatus;
+  resolved_by?: "participant" | "facilitator" | null;
   escalated: boolean;
   created_at: string;
   updated_at: string;
@@ -551,8 +552,19 @@ export interface TrackerHelpRequest {
   id: number;
   message: string;
   status: HelpStatus;
+  resolved_by?: "participant" | "facilitator" | null;
   escalated: boolean;
   milestone_id: number | null;
+  created_at: string;
+  answers: TrackerHelpAnswer[];
+}
+
+export interface RoomQuestion {
+  id: number;
+  asker_name: string;
+  message: string;
+  status: HelpStatus;
+  resolved_by?: "participant" | "facilitator" | null;
   created_at: string;
   answers: TrackerHelpAnswer[];
 }
@@ -566,6 +578,7 @@ export interface StatePayload {
   me: TrackerMe;
   leaderboard: LeaderboardRow[];
   participants_count: number;
+  room_open_help_count: number;
   broadcast: BroadcastInfo | null;
   help_requests: TrackerHelpRequest[];
 }
@@ -651,6 +664,17 @@ export function submitHelp(
   });
 }
 
+export function participantReplyHelp(
+  participantToken: string,
+  helpRequestId: number,
+  message: string,
+): Promise<{ help_request: TrackerHelpRequest; version: number }> {
+  return request(
+    `/api/p/${encodeURIComponent(participantToken)}/help/${helpRequestId}/reply`,
+    { method: "POST", body: JSON.stringify({ message }) },
+  );
+}
+
 export function participantResolveHelp(
   participantToken: string,
   helpRequestId: number,
@@ -659,6 +683,22 @@ export function participantResolveHelp(
     `/api/p/${encodeURIComponent(participantToken)}/help/${helpRequestId}/resolve`,
     { method: "POST", body: JSON.stringify({}) },
   );
+}
+
+export function participantReopenHelp(
+  participantToken: string,
+  helpRequestId: number,
+): Promise<{ help_request: TrackerHelpRequest; version: number }> {
+  return request(
+    `/api/p/${encodeURIComponent(participantToken)}/help/${helpRequestId}/reopen`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+}
+
+export function participantRoomQuestions(
+  participantToken: string,
+): Promise<{ questions: RoomQuestion[] }> {
+  return request(`/api/p/${encodeURIComponent(participantToken)}/questions`);
 }
 
 // ---------------------------------------------------------------------------

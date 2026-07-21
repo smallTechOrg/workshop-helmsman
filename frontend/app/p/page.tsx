@@ -13,6 +13,8 @@ import {
   ApiError,
   completeMilestone,
   participantContent,
+  participantReplyHelp,
+  participantReopenHelp,
   participantResolveHelp,
   participantState,
   prettyParticipantUrl,
@@ -33,6 +35,7 @@ import { MilestoneList } from "@/components/participant/MilestoneList";
 import { Markdown } from "@/components/ui/Markdown";
 import { Leaderboard } from "@/components/participant/Leaderboard";
 import { HelpPanel } from "@/components/participant/HelpPanel";
+import { RoomQuestions } from "@/components/participant/RoomQuestions";
 import { PersonalLinkCallout } from "@/components/participant/PersonalLinkCallout";
 import { BroadcastBanner } from "@/components/participant/BroadcastBanner";
 
@@ -258,6 +261,23 @@ function TrackerInner() {
     }
   };
 
+  const onReplyHelp = async (id: number, message: string): Promise<boolean> => {
+    if (!token) return false;
+    try {
+      await participantReplyHelp(token, id, message);
+      pollNow();
+      return true;
+    } catch (err) {
+      toast.show(
+        err instanceof ApiError
+          ? `Couldn't send that — ${err.message}`
+          : "Couldn't send that — check your connection and try again.",
+        "error",
+      );
+      return false;
+    }
+  };
+
   const onResolveHelp = async (id: number) => {
     if (!token) return;
     setResolvedOverride((prev) => new Set(prev).add(id));
@@ -274,6 +294,26 @@ function TrackerInner() {
         err instanceof ApiError
           ? `Couldn't resolve that — ${err.message}`
           : "Couldn't resolve that — check your connection and try again.",
+        "error",
+      );
+    }
+  };
+
+  const onReopenHelp = async (id: number) => {
+    if (!token) return;
+    setResolvedOverride((prev) => {
+      const copy = new Set(prev);
+      copy.delete(id);
+      return copy;
+    });
+    try {
+      await participantReopenHelp(token, id);
+      pollNow();
+    } catch (err) {
+      toast.show(
+        err instanceof ApiError
+          ? `Couldn't reopen that — ${err.message}`
+          : "Couldn't reopen that — check your connection and try again.",
         "error",
       );
     }
@@ -377,7 +417,14 @@ function TrackerInner() {
               submitting={helpSubmitting}
               archived={archived}
               onSubmit={onSubmitHelp}
+              onReply={onReplyHelp}
               onResolve={onResolveHelp}
+              onReopen={onReopenHelp}
+            />
+            <RoomQuestions
+              token={token}
+              openCount={data.room_open_help_count ?? 0}
+              nowMs={nowMs}
             />
           </Card>
           <Card className="p-4">
