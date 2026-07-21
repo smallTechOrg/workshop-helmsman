@@ -57,6 +57,21 @@ class JoinBody(BaseModel):
         return trimmed
 
 
+class ProfileBody(BaseModel):
+    name: str | None = None
+    answers: dict[str, str] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        trimmed = value.strip()
+        if not (1 <= len(trimmed) <= PARTICIPANT_NAME_MAX):
+            raise ValueError(f"name must be 1–{PARTICIPANT_NAME_MAX} characters")
+        return trimmed
+
+
 class HelpBody(BaseModel):
     message: str
 
@@ -279,12 +294,14 @@ def poll_state(
             "me": {
                 "id": participant.id,
                 "name": participant.name,
+                "answers": json.loads(participant.answers_json or "{}"),
                 "completed_milestone_ids": completed_ids,
                 "completed_count": len(completed_ids),
                 "total_count": total_count,
                 "progress_pct": progress_pct(len(completed_ids), total_count),
                 "rank": rank,
             },
+            "join_form": json.loads(workshop.join_form_json or "[]"),
             "leaderboard": leaderboard,
             "participants_count": len(shared["leaderboard"]),
             "room_open_help_count": shared["room_open_help_count"],
@@ -294,6 +311,51 @@ def poll_state(
             ],
         }
     )
+
+
+@router.patch("/p/{participant_token}/profile")
+def patch_own_profile(
+    participant_token: str,
+    body: ProfileBody,
+    session: Session = Depends(get_session),
+) -> dict:
+    """A participant edits their own details — display name and custom join
+    answers. Lenient on answers: fields that became required after they joined
+    aren't forced when they touch an unrelated one."""
+    participant, workshop = participant_by_token(session, participant_token)
+    _guard_not_archived(workshop)
+
+    fields_set = body.model_fields_set
+    if "name" in fields_set and body.name is not None:
+        participant.name = body.name
+    if "answers" in fields_set and body.answers is not None:
+        try:
+            participant.answers_json = json.dumps(
+                validate_answers(workshop.join_form_json, body.answers, require_all=False)
+            )
+        except JoinFormError as exc:
+            raise api_error("validation_error", str(exc), 422)
+
+    version = bump_state_version(workshop)
+    session.flush()
+    log.info(
+        "participant.self_edit",
+        workshop_id=workshop.id,
+        participant_id=participant.id,
+        fields=sorted(fields_set),
+    )
+    payload = ok(
+        {
+            "participant": {
+                "id": participant.id,
+                "name": participant.name,
+                "answers": json.loads(participant.answers_json or "{}"),
+            },
+            "version": version,
+        }
+    )
+    session.commit()  # visible before the response reaches the client
+    return payload
 
 
 @router.get("/p/{participant_token}/content")
