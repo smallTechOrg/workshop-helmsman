@@ -8,6 +8,8 @@ import {
   facilitatorEditMilestone,
   facilitatorReorder,
   type MilestoneFull,
+  type MilestoneInputConfig,
+  type MilestoneInputType,
 } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 
@@ -16,6 +18,129 @@ interface Row {
   title: string;
   content_md: string;
   minutes: string;
+}
+
+interface Draft {
+  title: string;
+  content_md: string;
+  minutes: string;
+  inputType: "" | MilestoneInputType;
+  inputLabel: string;
+  inputOptions: string;
+}
+
+const EMPTY_DRAFT: Draft = {
+  title: "",
+  content_md: "",
+  minutes: "",
+  inputType: "",
+  inputLabel: "",
+  inputOptions: "",
+};
+
+function draftFromMilestone(m: MilestoneFull): Draft {
+  const c = m.input_config;
+  return {
+    title: m.title,
+    content_md: m.content_md,
+    minutes: m.minutes === null ? "" : String(m.minutes),
+    inputType: c?.type ?? "",
+    inputLabel: c?.label ?? "",
+    inputOptions: (c?.options ?? []).join("\n"),
+  };
+}
+
+/** Build the input_config to send: null clears it, an object sets it. */
+function buildInputConfig(draft: Draft): {
+  ok: boolean;
+  value?: MilestoneInputConfig | null;
+  error?: string;
+} {
+  if (draft.inputType === "") return { ok: true, value: null };
+  const config: MilestoneInputConfig = {
+    type: draft.inputType,
+    label: draft.inputLabel.trim(),
+  };
+  if (draft.inputType === "dropdown") {
+    const options = draft.inputOptions
+      .split("\n")
+      .map((o) => o.trim())
+      .filter(Boolean);
+    if (options.length === 0) {
+      return { ok: false, error: "A dropdown input needs at least one option (one per line)." };
+    }
+    if (new Set(options).size !== options.length) {
+      return { ok: false, error: "Dropdown options must be unique." };
+    }
+    config.options = options;
+  }
+  return { ok: true, value: config };
+}
+
+const INPUT_TYPE_LABELS: Record<MilestoneInputType, string> = {
+  github_url: "GitHub URL",
+  url: "Link (URL)",
+  text: "Short text",
+  dropdown: "Dropdown",
+};
+
+function InputConfigEditor({
+  draft,
+  setDraft,
+}: {
+  draft: Draft;
+  setDraft: React.Dispatch<React.SetStateAction<Draft>>;
+}) {
+  return (
+    <div className="rounded-lg border border-stone-200 bg-white p-3">
+      <label className="mb-1 block text-xs font-medium text-stone-600">
+        Require an input to complete this milestone
+      </label>
+      <select
+        data-testid="milestone-input-type"
+        value={draft.inputType}
+        onChange={(e) =>
+          setDraft((d) => ({ ...d, inputType: e.target.value as Draft["inputType"] }))
+        }
+        className="w-full rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm"
+      >
+        <option value="">No input required</option>
+        {(Object.keys(INPUT_TYPE_LABELS) as MilestoneInputType[]).map((t) => (
+          <option key={t} value={t}>
+            {INPUT_TYPE_LABELS[t]}
+          </option>
+        ))}
+      </select>
+      {draft.inputType !== "" && (
+        <div className="mt-2 space-y-2">
+          <input
+            data-testid="milestone-input-label"
+            value={draft.inputLabel}
+            maxLength={120}
+            placeholder="Field label (e.g. Your repo URL)"
+            aria-label="Input field label"
+            onChange={(e) => setDraft((d) => ({ ...d, inputLabel: e.target.value }))}
+            className="w-full rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm"
+          />
+          {draft.inputType === "dropdown" && (
+            <textarea
+              data-testid="milestone-input-options"
+              value={draft.inputOptions}
+              rows={3}
+              placeholder="One option per line"
+              aria-label="Dropdown options, one per line"
+              onChange={(e) => setDraft((d) => ({ ...d, inputOptions: e.target.value }))}
+              className="w-full rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm"
+            />
+          )}
+          <p className="text-xs text-stone-400">
+            Participants must enter a valid value here before they can mark this milestone
+            complete.
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function toRows(milestones: MilestoneFull[]): Row[] {
@@ -43,11 +168,7 @@ export function MilestonesTab({
 }) {
   const [rows, setRows] = useState<Row[]>(() => toRows(milestones));
   const [editing, setEditing] = useState<number | null>(null);
-  const [draft, setDraft] = useState<{ title: string; content_md: string; minutes: string }>({
-    title: "",
-    content_md: "",
-    minutes: "",
-  });
+  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,9 +194,11 @@ export function MilestonesTab({
     }
   };
 
-  const startEdit = (row: Row) => {
-    setEditing(row.id);
-    setDraft({ title: row.title, content_md: row.content_md, minutes: row.minutes });
+  const startEdit = (id: number) => {
+    const m = milestones.find((x) => x.id === id);
+    if (!m) return;
+    setEditing(id);
+    setDraft(draftFromMilestone(m));
     setError(null);
   };
 
@@ -101,12 +224,18 @@ export function MilestonesTab({
     setError(null);
     const v = validate();
     if (!v) return;
+    const ic = buildInputConfig(draft);
+    if (!ic.ok) {
+      setError(ic.error ?? "Invalid input configuration.");
+      return;
+    }
     setBusy(true);
     try {
       await facilitatorEditMilestone(token, editing, {
         title: v.title,
         content_md: draft.content_md,
         minutes: v.minutes,
+        input_config: ic.value,
       });
       setEditing(null);
       onChanged();
@@ -119,7 +248,7 @@ export function MilestonesTab({
 
   const startAdd = () => {
     setAdding(true);
-    setDraft({ title: "", content_md: "", minutes: "" });
+    setDraft(EMPTY_DRAFT);
     setError(null);
   };
 
@@ -127,12 +256,18 @@ export function MilestonesTab({
     setError(null);
     const v = validate();
     if (!v) return;
+    const ic = buildInputConfig(draft);
+    if (!ic.ok) {
+      setError(ic.error ?? "Invalid input configuration.");
+      return;
+    }
     setBusy(true);
     try {
       await facilitatorAddMilestone(token, {
         title: v.title,
         content_md: draft.content_md,
         minutes: v.minutes,
+        input_config: ic.value,
       });
       setAdding(false);
       onChanged();
@@ -201,6 +336,7 @@ export function MilestonesTab({
                     placeholder="min"
                     className="w-24 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm"
                   />
+                  <InputConfigEditor draft={draft} setDraft={setDraft} />
                   <div className="flex justify-end gap-2">
                     <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>
                       Cancel
@@ -236,7 +372,7 @@ export function MilestonesTab({
                     >
                       ↓
                     </button>
-                    <Button variant="ghost" size="sm" onClick={() => startEdit(row)}>
+                    <Button variant="ghost" size="sm" onClick={() => startEdit(row.id)}>
                       Edit
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => doDelete(row.id, row.title)}>
@@ -277,6 +413,7 @@ export function MilestonesTab({
             aria-label="New milestone planned minutes"
             className="w-24 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm"
           />
+          <InputConfigEditor draft={draft} setDraft={setDraft} />
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>
               Cancel

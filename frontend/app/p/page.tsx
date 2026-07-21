@@ -163,11 +163,16 @@ function TrackerInner() {
     return null;
   }, [data, completedIds]);
 
-  const onToggle = async (milestoneId: number, next: boolean) => {
+  const onToggle = async (milestoneId: number, next: boolean, input?: string) => {
     if (!token) return;
-    setOverlay((prev) => ({ ...prev, [milestoneId]: next }));
+    // Gated milestones validate server-side; don't show the optimistic tick
+    // until the completion actually lands, or a rejected input would flicker on.
+    const optimistic = next && input === undefined;
+    if (optimistic || !next) {
+      setOverlay((prev) => ({ ...prev, [milestoneId]: next }));
+    }
     try {
-      if (next) await completeMilestone(token, milestoneId);
+      if (next) await completeMilestone(token, milestoneId, input);
       else await uncompleteMilestone(token, milestoneId);
       pollNow();
     } catch (err) {
@@ -182,6 +187,7 @@ function TrackerInner() {
           : "Couldn't save that — check your connection and try again.",
         "error",
       );
+      throw err;
     }
   };
 
@@ -409,6 +415,7 @@ function TrackerInner() {
             completedIds={completedIds}
             currentId={currentId}
             paused={data.workshop.paused || archived}
+            submittedInputs={data.me.milestone_inputs ?? {}}
             onToggle={onToggle}
           />
         </div>

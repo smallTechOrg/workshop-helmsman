@@ -86,12 +86,21 @@ export interface PollUnchanged {
   content_version: number;
 }
 
+export type MilestoneInputType = "github_url" | "url" | "text" | "dropdown";
+
+export interface MilestoneInputConfig {
+  type: MilestoneInputType;
+  label: string;
+  options?: string[];
+}
+
 export interface MilestoneFull {
   id: number;
   position: number;
   title: string;
   content_md: string;
   minutes: number | null;
+  input_config: MilestoneInputConfig | null;
 }
 
 export interface MilestoneMeta {
@@ -99,6 +108,7 @@ export interface MilestoneMeta {
   position: number;
   title: string;
   minutes: number | null;
+  input_config: MilestoneInputConfig | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +145,7 @@ export interface MilestoneInput {
   title: string;
   content_md: string;
   minutes: number | null;
+  input_config?: MilestoneInputConfig | null;
 }
 
 export interface CreateWorkshopBody {
@@ -203,6 +214,7 @@ export interface MilestoneStat {
   title: string;
   completed_count: number;
   completed_pct: number;
+  input_config: MilestoneInputConfig | null;
 }
 
 export interface DistributionBucket {
@@ -222,6 +234,8 @@ export interface DashboardParticipant {
   current_milestone_id: number | null;
   open_help_count: number;
   participant_url: string;
+  /** {milestone_id: submitted value} for input-gated milestones they've done. */
+  milestone_inputs: Record<string, string>;
 }
 
 export interface HelpAnswer {
@@ -527,6 +541,7 @@ export interface TrackerMe {
   id: number;
   name: string;
   answers: Record<string, string>;
+  milestone_inputs: Record<string, string>;
   completed_milestone_ids: number[];
   completed_count: number;
   total_count: number;
@@ -639,10 +654,14 @@ export function participantContent(
 export function completeMilestone(
   participantToken: string,
   milestoneId: number,
+  input?: string,
 ): Promise<CompletionResult> {
   return request(
     `/api/p/${encodeURIComponent(participantToken)}/milestones/${milestoneId}/complete`,
-    { method: "POST", body: JSON.stringify({}) },
+    {
+      method: "POST",
+      body: JSON.stringify(input === undefined ? {} : { input }),
+    },
   );
 }
 

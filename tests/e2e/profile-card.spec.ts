@@ -36,7 +36,13 @@ test('participant sees and edits their own profile card', async ({ page, request
   await page.getByTestId('profile-edit').click();
   const nameInput = page.getByTestId('profile-name-input');
   await expect(nameInput).toHaveValue('Asha');
-  await nameInput.fill('Asha K.');
+
+  // Regression: typing key-by-key must not lose focus after each character
+  // (the modal used to re-run its focus effect on every render).
+  await nameInput.fill('');
+  await nameInput.pressSequentially('Asha K.', { delay: 20 });
+  await expect(nameInput).toBeFocused();
+  await expect(nameInput).toHaveValue('Asha K.');
   await page.getByTestId('profile-field-team').selectOption('Growth');
 
   const saved = page.waitForResponse(

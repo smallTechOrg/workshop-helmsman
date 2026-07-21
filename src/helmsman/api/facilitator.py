@@ -27,6 +27,11 @@ from src.helmsman.services.join_form import (
     validate_answers,
     validate_field_defs,
 )
+from src.helmsman.services.milestone_input import (
+    MilestoneInputError,
+    load_input_config,
+    validate_input_config,
+)
 from src.helmsman.services.snapshots import (
     bump_content_version,
     bump_state_version,
@@ -97,6 +102,7 @@ class MilestoneCreateBody(BaseModel):
     title: str
     content_md: str = ""
     minutes: int | None = None
+    input_config: dict | None = None
 
     @field_validator("title")
     @classmethod
@@ -124,6 +130,7 @@ class MilestonePatchBody(BaseModel):
     title: str | None = None
     content_md: str | None = None
     minutes: int | None = None
+    input_config: dict | None = None
 
     @field_validator("title")
     @classmethod
@@ -264,16 +271,7 @@ def get_workshop(
                 "facilitator_url": f"{base}/f/{workshop.admin_token}",
                 "created_at": iso_z(workshop.created_at),
             },
-            "milestones": [
-                {
-                    "id": m.id,
-                    "position": m.position,
-                    "title": m.title,
-                    "content_md": m.content_md,
-                    "minutes": m.minutes,
-                }
-                for m in milestones
-            ],
+            "milestones": [_milestone_out(m) for m in milestones],
         }
     )
 
@@ -673,6 +671,17 @@ def reorder_milestones(
     return payload
 
 
+def _milestone_out(milestone: Milestone) -> dict:
+    return {
+        "id": milestone.id,
+        "position": milestone.position,
+        "title": milestone.title,
+        "content_md": milestone.content_md,
+        "minutes": milestone.minutes,
+        "input_config": load_input_config(milestone.input_config_json),
+    }
+
+
 @router.post("/milestones")
 def create_milestone(
     admin_token: str,
@@ -690,12 +699,18 @@ def create_milestone(
     )
     next_position = (max_position + 1) if max_position is not None else 0
 
+    try:
+        input_config = validate_input_config(body.input_config)
+    except MilestoneInputError as exc:
+        raise api_error("validation_error", str(exc), 422)
+
     milestone = Milestone(
         workshop_id=workshop.id,
         position=next_position,
         title=body.title,
         content_md=body.content_md,
         minutes=body.minutes,
+        input_config_json=json.dumps(input_config) if input_config else None,
     )
     session.add(milestone)
     session.flush()
@@ -711,13 +726,7 @@ def create_milestone(
     session.flush()
     payload = ok(
         {
-            "milestone": {
-                "id": milestone.id,
-                "position": milestone.position,
-                "title": milestone.title,
-                "content_md": milestone.content_md,
-                "minutes": milestone.minutes,
-            },
+            "milestone": _milestone_out(milestone),
             "version": workshop.state_version,
             "content_version": content_version,
         }
@@ -744,6 +753,13 @@ def patch_milestone(
         milestone.content_md = body.content_md
     if "minutes" in fields_set:
         milestone.minutes = body.minutes
+    if "input_config" in fields_set:
+        # Passing null clears the requirement; a config sets/replaces it.
+        try:
+            input_config = validate_input_config(body.input_config)
+        except MilestoneInputError as exc:
+            raise api_error("validation_error", str(exc), 422)
+        milestone.input_config_json = json.dumps(input_config) if input_config else None
 
     content_version = bump_content_version(workshop)
     record_action(
@@ -756,13 +772,7 @@ def patch_milestone(
     session.flush()
     payload = ok(
         {
-            "milestone": {
-                "id": milestone.id,
-                "position": milestone.position,
-                "title": milestone.title,
-                "content_md": milestone.content_md,
-                "minutes": milestone.minutes,
-            },
+            "milestone": _milestone_out(milestone),
             "version": workshop.state_version,
             "content_version": content_version,
         }

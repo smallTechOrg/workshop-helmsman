@@ -8,10 +8,14 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.helmsman.api._common import iso_z, ok, request_base_url
+from src.helmsman.api._common import api_error, iso_z, ok, request_base_url
 from src.helmsman.db.models import HelpRequest, Milestone, Participant, Workshop
 from src.helmsman.db.session import get_session
 from src.helmsman.services.join_form import JoinFormError, validate_field_defs
+from src.helmsman.services.milestone_input import (
+    MilestoneInputError,
+    validate_input_config,
+)
 from src.helmsman.security import (
     generate_admin_token,
     generate_join_slug,
@@ -36,6 +40,7 @@ class MilestoneIn(BaseModel):
     title: str
     content_md: str = ""
     minutes: int | None = None
+    input_config: dict | None = None
 
     @field_validator("title")
     @classmethod
@@ -166,6 +171,10 @@ def create_workshop(
     session.flush()
 
     for position, milestone in enumerate(body.milestones):
+        try:
+            input_config = validate_input_config(milestone.input_config)
+        except MilestoneInputError as exc:
+            raise api_error("validation_error", str(exc), 422)
         session.add(
             Milestone(
                 workshop_id=workshop.id,
@@ -173,6 +182,7 @@ def create_workshop(
                 title=milestone.title,
                 content_md=milestone.content_md,
                 minutes=milestone.minutes,
+                input_config_json=json.dumps(input_config) if input_config else None,
             )
         )
 
