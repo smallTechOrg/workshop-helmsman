@@ -81,6 +81,9 @@ class Milestone(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     content_md: Mapped[str] = mapped_column(Text, nullable=False, default="")
     minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Optional per-milestone completion input (JSON: {type,label,options?}).
+    # Null ⇒ no input required; see services/milestone_input.py.
+    input_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
@@ -115,6 +118,8 @@ class MilestoneCompletion(Base):
         ForeignKey("milestone.id", ondelete="CASCADE"), nullable=False, index=True
     )
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="participant")
+    # The value the participant submitted, when the milestone required an input.
+    input_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 

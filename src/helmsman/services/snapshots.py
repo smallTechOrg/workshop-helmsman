@@ -26,6 +26,7 @@ from src.helmsman.db.models import (
     Workshop,
 )
 from src.helmsman.services.intelligence import compute_bottleneck, compute_pulse, compute_stuck
+from src.helmsman.services.milestone_input import load_input_config
 
 SNAPSHOT_TTL_SECONDS = 2.0
 ACTIVE_WINDOW_SECONDS = 300
@@ -246,6 +247,28 @@ def _load_completions_by_participant(
     return by_participant
 
 
+def _load_milestone_inputs_by_participant(
+    session: Session, workshop_id: int
+) -> dict[int, dict[int, str]]:
+    """{participant_id: {milestone_id: submitted_value}} for input-gated milestones."""
+    rows = session.execute(
+        select(
+            MilestoneCompletion.participant_id,
+            MilestoneCompletion.milestone_id,
+            MilestoneCompletion.input_value,
+        )
+        .join(Milestone, MilestoneCompletion.milestone_id == Milestone.id)
+        .where(
+            Milestone.workshop_id == workshop_id,
+            MilestoneCompletion.input_value.is_not(None),
+        )
+    ).all()
+    by_participant: dict[int, dict[int, str]] = {}
+    for participant_id, milestone_id, value in rows:
+        by_participant.setdefault(participant_id, {})[milestone_id] = value
+    return by_participant
+
+
 def _current_milestone_id(milestones: list[Milestone], completed_ids: set[int]) -> int | None:
     for milestone in milestones:
         if milestone.id not in completed_ids:
@@ -374,6 +397,7 @@ def _build_dashboard(session: Session, workshop: Workshop, base_url: str) -> dic
     milestones = _load_milestones(session, workshop.id)
     participants = _load_participants(session, workshop.id)
     completions = _load_completions_by_participant(session, workshop.id)
+    milestone_inputs = _load_milestone_inputs_by_participant(session, workshop.id)
     total_count = len(milestones)
     now = utcnow()
 
@@ -417,6 +441,9 @@ def _build_dashboard(session: Session, workshop: Workshop, base_url: str) -> dic
                 "open_help_count": open_help_by_participant.get(p.id, 0),
                 "participant_url": f"{base_url}/p/{p.token}",
                 "answers": json.loads(p.answers_json or "{}"),
+                "milestone_inputs": {
+                    str(mid): val for mid, val in milestone_inputs.get(p.id, {}).items()
+                },
             }
         )
 
@@ -432,6 +459,7 @@ def _build_dashboard(session: Session, workshop: Workshop, base_url: str) -> dic
             "title": m.title,
             "completed_count": per_milestone_completed[m.id],
             "completed_pct": progress_pct(per_milestone_completed[m.id], len(participants)),
+            "input_config": load_input_config(m.input_config_json),
         }
         for m in milestones
     ]
@@ -535,7 +563,13 @@ def _build_participant_shared(session: Session, workshop: Workshop) -> dict:
             "paused": workshop.paused,
         },
         "milestones": [
-            {"id": m.id, "position": m.position, "title": m.title, "minutes": m.minutes}
+            {
+                "id": m.id,
+                "position": m.position,
+                "title": m.title,
+                "minutes": m.minutes,
+                "input_config": load_input_config(m.input_config_json),
+            }
             for m in milestones
         ],
         "total_count": total_count,

@@ -10,6 +10,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.helmsman.services.join_form import JoinFormError, validate_answers
+from src.helmsman.services.milestone_input import (
+    MilestoneInputError,
+    load_input_config,
+    validate_input_value,
+)
 
 from src.helmsman.api._common import api_error, iso_z, ok, request_base_url, utcnow, as_utc
 from src.helmsman.db.models import (
@@ -70,6 +75,11 @@ class ProfileBody(BaseModel):
         if not (1 <= len(trimmed) <= PARTICIPANT_NAME_MAX):
             raise ValueError(f"name must be 1–{PARTICIPANT_NAME_MAX} characters")
         return trimmed
+
+
+class CompleteBody(BaseModel):
+    # The value for a milestone that requires an input; ignored otherwise.
+    input: str | None = None
 
 
 class HelpBody(BaseModel):
@@ -284,6 +294,17 @@ def poll_state(
         )
     )
 
+    # Values this participant submitted for input-gated milestones they've done.
+    my_inputs = {
+        str(mid): val
+        for mid, val in session.execute(
+            select(MilestoneCompletion.milestone_id, MilestoneCompletion.input_value).where(
+                MilestoneCompletion.participant_id == participant.id,
+                MilestoneCompletion.input_value.is_not(None),
+            )
+        ).all()
+    }
+
     return ok(
         {
             "changed": True,
@@ -295,6 +316,7 @@ def poll_state(
                 "id": participant.id,
                 "name": participant.name,
                 "answers": json.loads(participant.answers_json or "{}"),
+                "milestone_inputs": my_inputs,
                 "completed_milestone_ids": completed_ids,
                 "completed_count": len(completed_ids),
                 "total_count": total_count,
@@ -402,6 +424,7 @@ def get_content(
 def complete_milestone(
     participant_token: str,
     milestone_id: int,
+    body: CompleteBody | None = None,
     session: Session = Depends(get_session),
 ) -> dict:
     participant, workshop = participant_by_token(session, participant_token)
@@ -409,18 +432,34 @@ def complete_milestone(
     _guard_not_paused(workshop)
     milestone = _milestone_in_workshop(session, workshop, milestone_id)
 
+    # If this milestone gates completion behind an input, validate it up front.
+    input_config = load_input_config(milestone.input_config_json)
+    input_value: str | None = None
+    if input_config is not None:
+        try:
+            input_value = validate_input_value(input_config, body.input if body else None)
+        except MilestoneInputError as exc:
+            raise api_error("validation_error", str(exc), 422)
+
     existing = session.scalar(
         select(MilestoneCompletion).where(
             MilestoneCompletion.participant_id == participant.id,
             MilestoneCompletion.milestone_id == milestone.id,
         )
     )
+    if existing is not None and input_config is not None:
+        # Already complete — let a re-submit update the stored value.
+        if input_value != existing.input_value:
+            existing.input_value = input_value
+            bump_state_version(workshop)
+            session.flush()
     if existing is None:
         session.add(
             MilestoneCompletion(
                 participant_id=participant.id,
                 milestone_id=milestone.id,
                 source="participant",
+                input_value=input_value,
             )
         )
         bump_state_version(workshop)

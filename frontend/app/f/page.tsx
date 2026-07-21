@@ -48,6 +48,7 @@ import {
 import { UndoBanner, type UndoState } from "@/components/facilitator/UndoBanner";
 import { PauseControl } from "@/components/facilitator/PauseControl";
 import { MilestonesTab } from "@/components/facilitator/MilestonesTab";
+import { MilestoneSubmissions } from "@/components/facilitator/MilestoneSubmissions";
 import { WorkshopDetailsForm } from "@/components/facilitator/WorkshopDetailsForm";
 import { EditParticipantModal } from "@/components/facilitator/EditParticipantModal";
 import { AuditPanel } from "@/components/facilitator/AuditPanel";
@@ -494,6 +495,18 @@ function DashboardInner() {
             onAdvanceSelected={(id, title, ids) => runAdvance(id, title, ids)}
           />
         </Card>
+
+        {data.milestone_stats.some((m) => m.input_config) && (
+          <Card className="p-5">
+            <h2 className="mb-3 text-base font-semibold text-stone-900">
+              Milestone submissions
+            </h2>
+            <MilestoneSubmissions
+              milestoneStats={data.milestone_stats}
+              participants={data.participants}
+            />
+          </Card>
+        )}
 
         <div className="grid items-start gap-6 lg:grid-cols-2">
           <div className="space-y-6">
