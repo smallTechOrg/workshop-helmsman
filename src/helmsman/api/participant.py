@@ -13,6 +13,7 @@ from src.helmsman.services.join_form import JoinFormError, validate_answers
 
 from src.helmsman.api._common import api_error, iso_z, ok, request_base_url, utcnow, as_utc
 from src.helmsman.db.models import (
+    HelpAnswer,
     HelpRequest,
     Milestone,
     MilestoneCompletion,
@@ -30,6 +31,7 @@ from src.helmsman.services.snapshots import (
     participant_shared_snapshot,
     progress_pct,
     serialize_help_request_participant,
+    serialize_room_question,
 )
 
 log = structlog.get_logger("helmsman")
@@ -285,6 +287,7 @@ def poll_state(
             },
             "leaderboard": leaderboard,
             "participants_count": len(shared["leaderboard"]),
+            "room_open_help_count": shared["room_open_help_count"],
             "broadcast": shared["broadcast"],
             "help_requests": [
                 serialize_help_request_participant(session, hr) for hr in my_requests
@@ -454,6 +457,51 @@ def create_help_request(
     return payload
 
 
+@router.post("/p/{participant_token}/help/{help_request_id}/reply")
+def reply_to_help_request(
+    participant_token: str,
+    help_request_id: int,
+    body: HelpBody,
+    session: Session = Depends(get_session),
+) -> dict:
+    """A participant follows up on their own help request — appends a message
+    to the thread and reopens it so the facilitator sees it needs attention."""
+    participant, workshop = participant_by_token(session, participant_token)
+    _guard_not_archived(workshop)
+
+    help_request = session.get(HelpRequest, help_request_id)
+    if help_request is None or help_request.participant_id != participant.id:
+        raise api_error("not_found", "No such help request of yours.", 404)
+
+    session.add(
+        HelpAnswer(
+            help_request_id=help_request.id,
+            source="participant",
+            answer_md=body.message,
+        )
+    )
+    # A follow-up reopens the request — it needs the facilitator's attention.
+    help_request.status = "open"
+    help_request.resolved_by = None
+    help_request.updated_at = utcnow()
+    version = bump_state_version(workshop)
+    session.flush()
+    log.info(
+        "help.replied",
+        workshop_id=workshop.id,
+        help_request_id=help_request.id,
+        participant_id=participant.id,
+    )
+    payload = ok(
+        {
+            "help_request": serialize_help_request_participant(session, help_request),
+            "version": version,
+        }
+    )
+    session.commit()  # visible before the response reaches the client
+    return payload
+
+
 @router.post("/p/{participant_token}/help/{help_request_id}/resolve")
 def resolve_own_help_request(
     participant_token: str,
@@ -469,6 +517,7 @@ def resolve_own_help_request(
 
     if help_request.status != "resolved":
         help_request.status = "resolved"
+        help_request.resolved_by = "participant"
         help_request.updated_at = utcnow()
         bump_state_version(workshop)
         session.flush()
@@ -486,3 +535,56 @@ def resolve_own_help_request(
     )
     session.commit()  # visible before the response reaches the client
     return payload
+
+
+@router.post("/p/{participant_token}/help/{help_request_id}/reopen")
+def reopen_own_help_request(
+    participant_token: str,
+    help_request_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Re-open a resolved question (the participant still needs help)."""
+    participant, workshop = participant_by_token(session, participant_token)
+    _guard_not_archived(workshop)
+
+    help_request = session.get(HelpRequest, help_request_id)
+    if help_request is None or help_request.participant_id != participant.id:
+        raise api_error("not_found", "No such help request of yours.", 404)
+
+    if help_request.status == "resolved":
+        help_request.status = "open"
+        help_request.resolved_by = None
+        help_request.updated_at = utcnow()
+        bump_state_version(workshop)
+        session.flush()
+        log.info(
+            "help.reopened",
+            workshop_id=workshop.id,
+            help_request_id=help_request.id,
+        )
+    payload = ok(
+        {
+            "help_request": serialize_help_request_participant(session, help_request),
+            "version": workshop.state_version,
+        }
+    )
+    session.commit()  # visible before the response reaches the client
+    return payload
+
+
+@router.get("/p/{participant_token}/questions")
+def list_room_questions(
+    participant_token: str,
+    session: Session = Depends(get_session),
+) -> dict:
+    """The whole room's questions, read-only — fetched on demand so it never
+    bloats the poll loop. Everyone can see what others are asking."""
+    _participant, workshop = participant_by_token(session, participant_token)
+    requests = list(
+        session.scalars(
+            select(HelpRequest)
+            .where(HelpRequest.workshop_id == workshop.id)
+            .order_by(HelpRequest.created_at.desc(), HelpRequest.id.desc())
+        )
+    )
+    return ok({"questions": [serialize_room_question(session, hr) for hr in requests]})

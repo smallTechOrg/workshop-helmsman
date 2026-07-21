@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.helmsman.api._common import as_utc, iso_z, utcnow
@@ -164,6 +164,7 @@ def serialize_help_request_facilitator(session: Session, help_request: HelpReque
         "milestone_title": milestone.title if milestone else None,
         "message": help_request.message,
         "status": help_request.status,
+        "resolved_by": help_request.resolved_by,
         "escalated": help_request.escalated,
         "created_at": iso_z(help_request.created_at),
         "updated_at": iso_z(help_request.updated_at),
@@ -180,8 +181,25 @@ def serialize_help_request_participant(session: Session, help_request: HelpReque
         "id": help_request.id,
         "message": help_request.message,
         "status": help_request.status,
+        "resolved_by": help_request.resolved_by,
         "escalated": help_request.escalated,
         "milestone_id": help_request.milestone_id,
+        "created_at": iso_z(help_request.created_at),
+        "answers": [serialize_answer_participant(a) for a in answers],
+    }
+
+
+def serialize_room_question(session: Session, help_request: HelpRequest) -> dict:
+    """Read-only shape for the shared 'questions from the room' view — asker's
+    name + the thread, no drafts or AI context."""
+    participant = session.get(Participant, help_request.participant_id)
+    answers = [a for a in _load_answers(session, help_request.id) if not a.draft]
+    return {
+        "id": help_request.id,
+        "asker_name": participant.name if participant else "",
+        "message": help_request.message,
+        "status": help_request.status,
+        "resolved_by": help_request.resolved_by,
         "created_at": iso_z(help_request.created_at),
         "answers": [serialize_answer_participant(a) for a in answers],
     }
@@ -524,4 +542,13 @@ def _build_participant_shared(session: Session, workshop: Workshop) -> dict:
         "leaderboard": leaderboard,
         "rank_by_participant_id": {entry["participant_id"]: entry["rank"] for entry in ranked},
         "broadcast": serialize_broadcast(_active_broadcast(session, workshop.id)),
+        # How many questions the room has open right now (status != resolved) —
+        # drives the ambient "others are asking" indicator on the tracker.
+        "room_open_help_count": session.scalar(
+            select(func.count(HelpRequest.id)).where(
+                HelpRequest.workshop_id == workshop.id,
+                HelpRequest.status != "resolved",
+            )
+        )
+        or 0,
     }

@@ -898,6 +898,7 @@ def resolve_help_request(
 
     if help_request.status != "resolved":
         help_request.status = "resolved"
+        help_request.resolved_by = "facilitator"
         help_request.updated_at = utcnow()
         bump_state_version(workshop)
         record_action(

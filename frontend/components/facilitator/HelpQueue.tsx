@@ -64,6 +64,11 @@ function QueueItem({
         </div>
         <div className="flex items-center gap-2">
           <HelpStatusBadge status={item.status} />
+          {item.status === "resolved" && item.resolved_by && (
+            <span className="text-xs whitespace-nowrap text-stone-400">
+              by {item.resolved_by}
+            </span>
+          )}
           <span className="text-xs whitespace-nowrap text-stone-400">
             {timeAgo(item.created_at, nowMs)}
           </span>
@@ -74,18 +79,36 @@ function QueueItem({
 
       {visibleAnswers.length > 0 && (
         <ul className="mt-3 space-y-2">
-          {visibleAnswers.map((a) => (
-            <li
-              key={a.id}
-              className="rounded-lg border border-brand-100 bg-brand-50/50 px-3 py-2"
-            >
-              <p className="mb-1 text-xs font-medium text-brand-700">
-                {a.source === "ai" ? "AI" : "Facilitator"} ·{" "}
-                {timeAgo(a.created_at, nowMs)}
-              </p>
-              <Markdown className="text-sm">{a.answer_md}</Markdown>
-            </li>
-          ))}
+          {visibleAnswers.map((a) => {
+            const fromParticipant = a.source === "participant";
+            return (
+              <li
+                key={a.id}
+                data-testid={fromParticipant ? "help-participant-reply" : "help-answer-msg"}
+                className={cn(
+                  "rounded-lg px-3 py-2",
+                  fromParticipant
+                    ? "border border-stone-200 bg-stone-50"
+                    : "border border-brand-100 bg-brand-50/50",
+                )}
+              >
+                <p
+                  className={cn(
+                    "mb-1 text-xs font-medium",
+                    fromParticipant ? "text-stone-500" : "text-brand-700",
+                  )}
+                >
+                  {fromParticipant
+                    ? item.participant_name
+                    : a.source === "ai"
+                      ? "AI"
+                      : "Facilitator"}{" "}
+                  · {timeAgo(a.created_at, nowMs)}
+                </p>
+                <Markdown className="text-sm">{a.answer_md}</Markdown>
+              </li>
+            );
+          })}
         </ul>
       )}
 

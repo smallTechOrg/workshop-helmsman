@@ -136,6 +136,8 @@ class HelpRequest(Base):
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    # Who last marked it resolved: "participant" | "facilitator" (null while open).
+    resolved_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
     escalated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ai_state: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
