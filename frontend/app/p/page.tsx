@@ -36,7 +36,7 @@ import { Markdown } from "@/components/ui/Markdown";
 import { Leaderboard } from "@/components/participant/Leaderboard";
 import { HelpPanel } from "@/components/participant/HelpPanel";
 import { RoomQuestions } from "@/components/participant/RoomQuestions";
-import { PersonalLinkCallout } from "@/components/participant/PersonalLinkCallout";
+import { ProfileCard } from "@/components/participant/ProfileCard";
 import { BroadcastBanner } from "@/components/participant/BroadcastBanner";
 
 function TrackerSkeleton() {
@@ -390,9 +390,13 @@ function TrackerInner() {
 
       <main className="mx-auto grid max-w-6xl gap-6 px-4 py-6 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <PersonalLinkCallout
-            url={personalUrl}
-            storageKey={`helmsman_plink_dismissed_${token.slice(0, 8)}`}
+          <ProfileCard
+            token={token}
+            me={data.me}
+            joinForm={data.join_form ?? []}
+            personalUrl={personalUrl}
+            archived={archived}
+            onSaved={pollNow}
           />
           {content && content.workshop.description_md.trim() !== "" && (
             <Card className="p-4" data-testid="workshop-description">

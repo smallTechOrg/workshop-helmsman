@@ -126,3 +126,38 @@ def test_facilitator_edits_participant(client, make_client, admin_headers):
 
     # Unknown participant id → 404.
     assert client.patch(f"/api/f/{token}/participants/999999", json={"name": "X"}).status_code == 404
+
+
+def test_participant_edits_own_profile(client, make_client, admin_headers):
+    ws = _create(client, admin_headers, FORM)
+    b = make_client()
+    p = b.post(
+        f"/api/join/{ws['join_slug']}",
+        json={"name": "Asha", "answers": {"team": "Platform", "role": "Engineer"}},
+    ).json()["data"]
+    ptok = p["participant_token"]
+
+    # The tracker state exposes the participant's own answers + the join form.
+    state = b.get(f"/api/p/{ptok}/state").json()["data"]
+    assert state["me"]["answers"] == {"team": "Platform", "role": "Engineer"}
+    assert [f["key"] for f in state["join_form"]] == ["team", "role"]
+
+    # The participant edits their own name + an answer.
+    res = b.patch(
+        f"/api/p/{ptok}/profile",
+        json={"name": "  Asha K.  ", "answers": {"team": "Growth", "role": "Student"}},
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()["data"]["participant"]
+    assert data["name"] == "Asha K."  # trimmed
+    assert data["answers"] == {"team": "Growth", "role": "Student"}
+
+    # Reflected on their own tracker and on the facilitator dashboard.
+    state = b.get(f"/api/p/{ptok}/state").json()["data"]
+    assert state["me"]["name"] == "Asha K."
+    assert state["me"]["answers"]["team"] == "Growth"
+    dash = client.get(f"/api/f/{ws['admin_token']}/dashboard").json()["data"]
+    assert dash["participants"][0]["name"] == "Asha K."
+
+    # A bad dropdown value is rejected.
+    assert b.patch(f"/api/p/{ptok}/profile", json={"answers": {"role": "CEO"}}).status_code == 422

@@ -526,6 +526,7 @@ export interface JoinResult {
 export interface TrackerMe {
   id: number;
   name: string;
+  answers: Record<string, string>;
   completed_milestone_ids: number[];
   completed_count: number;
   total_count: number;
@@ -576,6 +577,7 @@ export interface StatePayload {
   workshop: { name: string; status: WorkshopStatus; paused: boolean };
   milestones: MilestoneMeta[];
   me: TrackerMe;
+  join_form: JoinFormField[];
   leaderboard: LeaderboardRow[];
   participants_count: number;
   room_open_help_count: number;
@@ -661,6 +663,19 @@ export function submitHelp(
   return request(`/api/p/${encodeURIComponent(participantToken)}/help`, {
     method: "POST",
     body: JSON.stringify({ message }),
+  });
+}
+
+export function participantEditProfile(
+  participantToken: string,
+  body: { name?: string; answers?: Record<string, string> },
+): Promise<{
+  participant: { id: number; name: string; answers: Record<string, string> };
+  version: number;
+}> {
+  return request(`/api/p/${encodeURIComponent(participantToken)}/profile`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
   });
 }
 
