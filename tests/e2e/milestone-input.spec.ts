@@ -50,4 +50,14 @@ test('milestone input gates completion and surfaces submissions', async ({ brows
   const submissions = fac.getByTestId('milestone-submissions');
   await expect(submissions).toContainText('Asha', { timeout: 15_000 });
   await expect(submissions).toContainText('github.com/asha/lab');
+
+  // CSV export includes the participant, their progress, and the submitted URL.
+  const download = fac.waitForEvent('download');
+  await fac.getByTestId('participant-export-csv').click();
+  const path = await (await download).path();
+  const fs = await import('node:fs');
+  const csv = fs.readFileSync(path, 'utf8');
+  expect(csv).toContain('Name');
+  expect(csv).toContain('Asha');
+  expect(csv).toContain('https://github.com/asha/lab');
 });

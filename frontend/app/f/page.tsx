@@ -487,6 +487,7 @@ function DashboardInner() {
             milestoneStats={data.milestone_stats}
             joinUrl={ws.join_url}
             joinForm={ws.join_form ?? []}
+            exportHref={`/api/f/${encodeURIComponent(token)}/participants.csv`}
             onEditParticipant={setEditingParticipant}
             nowMs={nowMs}
             selectable

@@ -32,11 +32,14 @@ export function ParticipantTable({
   onAdvanceSelected,
   onEditParticipant,
   joinForm = [],
+  exportHref,
 }: {
   participants: DashboardParticipant[];
   milestoneStats: MilestoneStat[];
   joinUrl: string;
   nowMs: number;
+  /** Same-origin URL of the CSV export endpoint; shows an "Export CSV" button. */
+  exportHref?: string;
   /** Enables the checkbox column + "Advance selected" toolbar. */
   selectable?: boolean;
   selectedIds?: Set<number>;
@@ -189,7 +192,24 @@ export function ParticipantTable({
             </button>
           ))}
         </div>
-        <span className={cn("text-sm text-stone-500 tabular-nums", !selectable && "ml-auto")}>
+        {exportHref && (
+          <a
+            href={exportHref}
+            download
+            data-testid="participant-export-csv"
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-50",
+              !selectable && "ml-auto",
+            )}
+          >
+            <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" className="size-4">
+              <path d="M10 2a.75.75 0 0 1 .75.75v7.19l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 0 1 1.06-1.06l1.72 1.72V2.75A.75.75 0 0 1 10 2Z" />
+              <path d="M3.5 12.75a.75.75 0 0 1 .75.75v2a.5.5 0 0 0 .5.5h10.5a.5.5 0 0 0 .5-.5v-2a.75.75 0 0 1 1.5 0v2A2 2 0 0 1 15.25 17.5H4.75a2 2 0 0 1-2-2v-2a.75.75 0 0 1 .75-.75Z" />
+            </svg>
+            Export CSV
+          </a>
+        )}
+        <span className="text-sm text-stone-500 tabular-nums">
           {rows.length} of {participants.length}
         </span>
         {selectable && (

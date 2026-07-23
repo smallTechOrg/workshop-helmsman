@@ -132,3 +132,35 @@ def test_configure_and_clear_input_on_milestone(client, make_client, admin_heade
         ).status_code
         == 200
     )
+
+
+def test_participants_csv_export(client, make_client, admin_headers):
+    ws = _create(client, admin_headers)
+    token = ws["admin_token"]
+    gated = next(
+        m for m in client.get(f"/api/f/{token}/workshop").json()["data"]["milestones"]
+        if m["input_config"]
+    )
+
+    b = make_client()
+    p = b.post(f"/api/join/{ws['join_slug']}", json={"name": "Asha"}).json()["data"]
+    ptok = p["participant_token"]
+    b.post(
+        f"/api/p/{ptok}/milestones/{gated['id']}/complete",
+        json={"input": "https://github.com/asha/lab"},
+    )
+
+    res = client.get(f"/api/f/{token}/participants.csv")
+    assert res.status_code == 200, res.text
+    assert res.headers["content-type"].startswith("text/csv")
+    assert "attachment" in res.headers["content-disposition"]
+    body = res.text
+    lines = body.strip().splitlines()
+    header = lines[0]
+    assert "Name" in header and "Progress %" in header and "Personal link" in header
+    # The gated milestone contributes both a completion column and an input column.
+    assert "Push your repo" in header
+    assert "Your repo URL" in header
+    # Asha's row carries her submitted GitHub URL.
+    assert "Asha" in body
+    assert "https://github.com/asha/lab" in body

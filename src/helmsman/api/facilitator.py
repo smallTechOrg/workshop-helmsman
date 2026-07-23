@@ -1,9 +1,12 @@
 """Facilitator surface — /api/f/{admin_token}/… (see spec/api.md §Facilitator surface)."""
 
+import csv
+import io
 import json
 
 import structlog
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -391,6 +394,91 @@ def poll_dashboard(
             }
         )
     return ok(dashboard_snapshot(session, workshop, request_base_url(request)))
+
+
+@router.get("/participants.csv")
+def export_participants_csv(
+    admin_token: str, request: Request, session: Session = Depends(get_session)
+) -> Response:
+    """A complete CSV dump: every participant's profile, their custom join-form
+    answers, and per-milestone completion (with timestamp + any submitted input)."""
+    workshop = workshop_by_admin_token(session, admin_token)
+    base = request_base_url(request)
+
+    milestones = list(
+        session.scalars(
+            select(Milestone)
+            .where(Milestone.workshop_id == workshop.id)
+            .order_by(Milestone.position, Milestone.id)
+        )
+    )
+    participants = list(
+        session.scalars(
+            select(Participant)
+            .where(Participant.workshop_id == workshop.id)
+            .order_by(Participant.joined_at, Participant.id)
+        )
+    )
+    join_form = json.loads(workshop.join_form_json or "[]")
+
+    # {(participant_id, milestone_id): (completed_at, input_value)}
+    completions: dict[tuple[int, int], tuple[object, str | None]] = {}
+    for pid, mid, done_at, value in session.execute(
+        select(
+            MilestoneCompletion.participant_id,
+            MilestoneCompletion.milestone_id,
+            MilestoneCompletion.completed_at,
+            MilestoneCompletion.input_value,
+        )
+        .join(Milestone, MilestoneCompletion.milestone_id == Milestone.id)
+        .where(Milestone.workshop_id == workshop.id)
+    ).all():
+        completions[(pid, mid)] = (done_at, value)
+
+    total = len(milestones)
+
+    header = ["Name", "Joined at", "Last seen", "Completed", "Total", "Progress %", "Personal link"]
+    for field in join_form:
+        header.append(field.get("label") or field.get("key"))
+    for i, m in enumerate(milestones, start=1):
+        header.append(f"{i}. {m.title}")
+        config = load_input_config(m.input_config_json)
+        if config is not None:
+            header.append(f"{i}. {m.title} — {config['label']}")
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(header)
+
+    for p in participants:
+        answers = json.loads(p.answers_json or "{}")
+        completed_count = sum(1 for m in milestones if (p.id, m.id) in completions)
+        pct = round(100 * completed_count / total) if total else 0
+        row: list[object] = [
+            p.name,
+            iso_z(p.joined_at),
+            iso_z(p.last_seen_at),
+            completed_count,
+            total,
+            pct,
+            f"{base}/p/{p.token}",
+        ]
+        for field in join_form:
+            row.append(answers.get(field.get("key"), ""))
+        for m in milestones:
+            entry = completions.get((p.id, m.id))
+            row.append(iso_z(entry[0]) if entry else "")
+            if load_input_config(m.input_config_json) is not None:
+                row.append(entry[1] if entry and entry[1] else "")
+        writer.writerow(row)
+
+    slug = "".join(c if c.isalnum() else "-" for c in workshop.name).strip("-").lower() or "workshop"
+    filename = f"{slug}-participants.csv"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/help/{help_request_id}/answer")
