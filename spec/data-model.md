@@ -32,10 +32,18 @@ The unit of a live session. One row per run.
 | stuck_minutes | Integer | not null, default `10` | 2 | Stuck-alert threshold (per workshop) |
 | cloned_from_id | Integer | FK workshop.id, nullable | 3 | Provenance of a clone |
 | agenda_template_id | Integer | FK agenda_template.id (SET NULL), nullable | 3 | Which template instantiated it |
+| creator_email | String(254) | **nullable** | 6 | Email the public creator gave at the end of the create flow. `null` for admin-created workshops and for every row that existed before the Phase-6 migration. Never shown on any participant or facilitator surface — admin list only |
+| created_via | String(16) | not null, default `'admin'`, server_default `'admin'` | 6 | Origin flag: `admin` \| `public`. Existing rows backfill to `'admin'` by the server default |
 | created_at | DateTime | not null | 1 | |
 | updated_at | DateTime | not null, onupdate | 1 | |
 
 Indexes: unique(admin_token), unique(join_slug), ix(status).
+
+**Phase-6 migration (`0004_public_creation`, `down_revision = "0003"`):** adds the two columns above inside `with op.batch_alter_table("workshop") as batch:` (`render_as_batch=True` is already configured — required for SQLite ALTER). `creator_email` is `sa.String(254), nullable=True`; `created_via` is `sa.String(16), nullable=False, server_default="admin"` so existing rows backfill in place with no data migration step. `downgrade()` drops both columns in the same batch block. No other table changes.
+
+> **Assumed:** 254 chars for `creator_email` (RFC 5321 practical maximum) and no uniqueness constraint — one person may create several workshops, and the email is a contact trail, not an identity.
+
+**`created_via` semantics:** set to `'public'` exactly when the workshop was created through the keyless public endpoint, `'admin'` when created through the admin-key endpoint. It carries no permission meaning — a `public` workshop is byte-for-byte an `admin` workshop apart from these two columns (see [capabilities.md](capabilities.md) §C5).
 
 **Status lifecycle (Phase 3):** `upcoming` → (starts_at reached) → `live` → (End workshop) → `grace` → (grace_until passed or Archive-now) → `archived`. Transitions are applied lazily inside any workshop-scoped request; `archived` is terminal and read-only (every mutation returns `workshop_archived`). Phase 1–2 workshops are created directly `live` and stay `live`.
 

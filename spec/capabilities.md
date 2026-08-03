@@ -1,6 +1,6 @@
 # Capabilities — Workshop Helmsman (v0.2)
 
-Four core capabilities carry the product; everything else is deferred to a named phase (§Deferred). API shapes live in [api.md](api.md); schema in [data-model.md](data-model.md); phase plan in [roadmap.md](roadmap.md). This file also carries the UI specification (pages, components, states, stub placements) — there is no separate ui.md.
+Four core capabilities (C1–C4) carry the product; C5–C7 open it to the public in Phase 6; everything else is deferred to a named phase (§Deferred). API shapes live in [api.md](api.md); schema in [data-model.md](data-model.md); phase plan in [roadmap.md](roadmap.md). This file also carries the UI specification (pages, components, states, stub placements) — there is no separate ui.md.
 
 ## Design system (applies to every page)
 
@@ -71,6 +71,60 @@ A participant raises a hand without disrupting the room; help arrives in-page.
 - Empty state: "No open help requests — the room is cruising."
 
 **Success criteria:** request → visible in queue within one dashboard poll; answer → visible on tracker within one tracker poll; full loop (submit → answer → see → resolve) with zero manual refreshes; markdown answers with code render correctly; every answer audited (who/what/when).
+
+---
+
+## C5 — Public landing page *(Phase 6)*
+
+The instance's front door for a stranger who has never heard of Workshop Helmsman.
+
+**Page — `/` (also reachable at `/app/`; serving mechanism in [architecture.md](architecture.md) §Serving the landing page at `/`):** a real marketing page, not a redirect. It is the first thing a stranger sees, so it carries the same design-system bar as every other surface — same tokens, same primitives, responsive from 360px up, WCAG AA, keyboard-reachable, no layout shift.
+
+Sections, in order:
+
+1. **Hero** — product name + one-sentence promise + a single **primary CTA "Create your workshop — free, no signup"** → `/app/create/`, carrying `data-testid="landing-cta"` (the gate greps the served HTML for it). A secondary "See how it works" anchor-scrolls. No second competing CTA.
+2. **Feature sections** — one block each, with a short honest headline and 1–2 sentences: live progress dashboard across 300+ participants · content-rich markdown/code milestones · frictionless name-only joining with cookie auto-resume and personal cross-device links · real-time help desk · broadcast / pause / advance room controls · proactive stuck-and-bottleneck alerts · audit trail · CSV export.
+3. **"How it works"** — the facilitator→participant loop in numbered steps: compose milestones → share one join link → the room joins by name → watch the dashboard move → answer help in-page → export the results.
+4. **"Your workshops"** — rendered **only** when the browser's `localStorage` holds entries (see C6): a list of `{name, created_at}` with **Open dashboard** and **Copy join link**, plus the line *"Remembered by this browser only — not an account. Keep your dashboard link somewhere safe."* Absent entirely on a fresh browser (no empty state, no teaser).
+5. **FAQ** — the honest limits, stated plainly: no account and no login (a link is the credential) · the dashboard link is the *only* way back in — save it · clearing your browser loses the "your workshops" list but not the workshop · participants need only a browser · it is self-hosted and free · your creation email is used only so the operator can contact you, never for mail-outs.
+6. **Footer** — repo/licence line. **No link to the admin console** anywhere on the page.
+
+**Constraints (load-bearing, from architecture.md):** static server component — no router hooks, no data fetching except the client-side `localStorage` read in section 4 (which is a small `"use client"` island so the rest stays static); all outbound links are plain `<a href="/app/…">`, never `next/link`.
+
+**Success criteria:** `GET /` returns 200 `text/html` (not 307) and renders the hero, all eight feature blocks, the how-it-works steps and the FAQ · the primary CTA navigates to `/app/create/` · CSS and fonts load (no unstyled flash — real Tailwind utilities present in the served CSS) · no "Your workshops" section on a fresh browser · no admin link present in the DOM · renders without horizontal scroll at 360px and at 1440px.
+
+---
+
+## C6 — Self-service workshop creation *(Phase 6)*
+
+Anyone can create and host a workshop without ever touching an access key. **Same flow the admin already uses** — not a reduced one.
+
+**Page — `/app/create/` (no key gate):** the identical milestone composer used by the admin console — name, description (markdown), ordered milestone rows (title + markdown editor with Write/Preview + minutes + per-milestone completion input config), add/remove/move, join-form fields. The composer is a **shared component** used by both `/app/admin/` and `/app/create/`; it is not copied.
+
+**Final step — email, then reveal.** After the workshop is composed, the last step before anything is created asks for the creator's email: one field, inline format validation, a one-line explanation (*"So we can reach you about your workshop. We never send you mail and never share it."*), and the **Create workshop** button. Submitting calls `POST /api/public/workshops` ([api.md](api.md) §Phase 6) with the composed workshop **and** the email in one request — nothing is persisted before the email is given.
+
+**Success screen (the reveal):** both links shown prominently with copy buttons — the **facilitator dashboard link** first, under the plain-language warning *"This link is the only key to your dashboard. Save it now — there is no account and no password reset."* — then the **join link** to share with the room. A **Open my dashboard** button goes to the facilitator dashboard. On this screen the workshop is written to the browser's `localStorage` list (C5 §4): `{name, facilitator_url, join_url, created_at}`, capped at the 20 most recent.
+
+**Facilitator parity:** the creator lands on the normal facilitator dashboard with **every** facilitator capability — broadcast, pause, advance, reorder, edit/add/delete milestones, undo, help desk, audit tab, CSV export, settings. There is no reduced tier and no surface anywhere that behaves differently because `created_via = "public"`.
+
+**Errors:** invalid/blank email → inline field error from `validation_error`, the composed workshop is preserved in the form (never lost) · network/500 → toast "Couldn't create your workshop — try again", form preserved.
+
+**Success criteria:** a browser that has never sent an admin key can compose and create a workshop from `/` in one sitting · nothing is created until the email is supplied · a malformed email returns `validation_error` and creates no row · the returned facilitator link opens a dashboard with the full facilitator toolset · the join link admits a participant who then appears live on that dashboard · the created row is identical to an admin-created one apart from `creator_email` and `created_via`.
+
+---
+
+## C7 — Admin oversight of public workshops *(Phase 6)*
+
+The admin keeps the only cross-workshop view, and can now see where each workshop came from.
+
+**Page — `/app/admin/` (pretty `/admin`):** the existing Admin Home, **behaviour unchanged**, moved off `/`. The key gate, the `X-Admin-Key` handling, the grouping, the create flow and the template library all work exactly as before. Two additions to each workshop card in the list:
+
+- an **origin badge** — `Public` (brand-tinted) or `Admin` (neutral);
+- the **creator email** as metadata on public-created cards (plain text, selectable, `mailto:` link), absent on admin-created ones.
+
+`creator_email` appears here and nowhere else — never on a facilitator, participant or public surface.
+
+**Success criteria:** entering the key at `/admin` lists every workshop including public-created ones · a public-created workshop shows its `Public` badge and the exact email the creator entered · an admin-created workshop shows `Admin` and no email · every pre-existing admin flow still works from the new URL · `/` never exposes the admin console or its link.
 
 ---
 

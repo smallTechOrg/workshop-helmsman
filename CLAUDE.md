@@ -4,7 +4,7 @@ Read this file first, then follow the instructions below.
 
 ## What This Repo Is
 
-**Workshop Helmsman** — a self-hosted workshop tracker (FastAPI + Jinja2 server-rendered + vanilla JS + SQLite), built spec-first with the zero-shot SDD harness. The spec in `spec/` is fully written and is the source of truth; when spec and code disagree, the spec wins (`/zero-shot-sync`).
+**Workshop Helmsman** — a self-hosted workshop tracker (FastAPI + SQLAlchemy 2 + Alembic + SQLite/PostgreSQL backend, Next.js 15 / React 19 / Tailwind v4 static export frontend), built spec-first with the zero-shot SDD harness. One uvicorn process on port 8001 serves both `/api/*` and the built frontend at `/app/*` — single origin, no separate Node server in production. The spec in `spec/` is fully written and is the source of truth; when spec and code disagree, the spec wins (`/zero-shot-sync`).
 
 ## Your First Action Every Session
 
@@ -21,7 +21,8 @@ spec/roadmap.md
 spec/architecture.md
 spec/capabilities.md
 spec/data-model.md
-spec/agent.md     ← REQUIRED for any agent framework project (this app has none — the file says so)
+spec/api.md
+spec/agent.md     ← the AI help-desk pipeline design (OpenRouter; Phase 4)
 harness/rules/ai-agents.md
 harness/patterns/spec-driven.md
 harness/patterns/phases.md
@@ -63,7 +64,7 @@ These are the entry points. All are manual (`disable-model-invocation: true`). E
 
 ## The app in `src/`
 
-`src/` is the working application — FastAPI routes in `src/main.py`, SQLAlchemy models in `src/models.py`, DB session in `src/db.py`, auth/token helpers in `src/security.py`. Server-rendered UI lives in `frontend/templates/` (Jinja2) with assets in `frontend/static/`. State is SQLite at `data/helmsman.db` (or PostgreSQL via `DATABASE_URL`). There is no LLM, agent framework, or tool-use loop in this product (see `spec/agent.md`). Generators extend the app in place — they never copy or rename — and change nothing the spec doesn't require.
+`src/` is the working application, packaged as `src.helmsman.*` (booted with `uv run python -m src`) — FastAPI routers in `src/helmsman/api/` (`admin.py`, `facilitator.py`, `participant.py`, `health.py`; `__init__.py` holds `create_app()`, the pretty-link redirects and the static mount), domain logic in `src/helmsman/services/`, SQLAlchemy models in `src/helmsman/db/models.py`, DB session in `src/helmsman/db/session.py`, auth/token helpers in `src/helmsman/security.py`, settings in `src/helmsman/config/settings.py`, structlog setup in `src/helmsman/observability/logging.py`. The UI is a Next.js static export — source in `frontend/app/` + `frontend/components/` + `frontend/lib/`, built with `(cd frontend && pnpm build)` to `frontend/out/` and mounted by FastAPI at `/app`. Schema changes go through Alembic (`alembic/versions/`, `render_as_batch=True`). State is SQLite at `data/helmsman.db` (or PostgreSQL via `DATABASE_URL`). The only LLM surface is the OpenRouter-backed AI help-desk specified in `spec/agent.md` (Phase 4 — specified, not yet built); there is no agent framework or tool-use loop. Generators extend the app in place — they never copy or rename — and change nothing the spec doesn't require.
 
 ## Sub-agents (the team)
 
