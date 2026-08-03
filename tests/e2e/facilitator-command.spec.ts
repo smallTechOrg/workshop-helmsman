@@ -5,7 +5,7 @@ import {
   type Locator,
   type Page,
 } from '@playwright/test';
-import { APP_BASE, adminKey, extractUrl } from './helpers';
+import { ADMIN_BASE, APP_BASE, adminKey, extractUrl } from './helpers';
 
 /**
  * Phase 2 — facilitator command & proactive intelligence (spec/roadmap.md
@@ -75,7 +75,7 @@ test.describe.serial('Phase 2 — facilitator command & proactive intelligence',
   });
 
   test('facilitator creates a workshop; Alice and Bob join', async () => {
-    await fac.goto(`${APP_BASE}/`);
+    await fac.goto(`${ADMIN_BASE}/`);
     await fac.getByTestId('admin-key-input').fill(adminKey());
     await fac.getByTestId('admin-key-submit').click();
     await expect(fac.getByTestId('new-workshop-button')).toBeVisible();
@@ -109,7 +109,7 @@ test.describe.serial('Phase 2 — facilitator command & proactive intelligence',
     const card = fac.getByTestId('workshop-card').filter({ hasText: WORKSHOP_NAME }).first();
     await expect(async () => {
       if (!(await card.isVisible())) {
-        await fac.goto(`${APP_BASE}/`);
+        await fac.goto(`${ADMIN_BASE}/`);
       }
       await expect(card).toBeVisible({ timeout: 4000 });
     }).toPass({ timeout: 30_000 });

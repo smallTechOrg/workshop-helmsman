@@ -63,6 +63,13 @@ class Workshop(Base):
     agenda_template_id: Mapped[int | None] = mapped_column(
         ForeignKey("agenda_template.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Phase 6 — public self-service creation (migration 0004_public_creation).
+    # creator_email is returned on the admin list ONLY; never on a facilitator,
+    # participant or public payload.
+    creator_email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    created_via: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="admin", server_default="admin"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow

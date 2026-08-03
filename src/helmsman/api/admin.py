@@ -1,121 +1,26 @@
 """Admin surface — header `X-Admin-Key` (see spec/api.md §Admin surface)."""
 
-import json
-
 import structlog
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.helmsman.api._common import api_error, iso_z, ok, request_base_url
-from src.helmsman.db.models import HelpRequest, Milestone, Participant, Workshop
+from src.helmsman.api._common import iso_z, ok, request_base_url
+from src.helmsman.db.models import HelpRequest, Participant, Workshop
 from src.helmsman.db.session import get_session
-from src.helmsman.services.join_form import JoinFormError, validate_field_defs
-from src.helmsman.services.milestone_input import (
-    MilestoneInputError,
-    validate_input_config,
+from src.helmsman.security import require_admin_key
+from src.helmsman.services.workshops import (  # re-exported: the shared request models
+    MilestoneIn,
+    WorkshopCreate,
+    create_workshop as create_workshop_record,
+    workshop_urls,
 )
-from src.helmsman.security import (
-    generate_admin_token,
-    generate_join_slug,
-    require_admin_key,
-)
-from src.helmsman.services.audit import record_action
+
+__all__ = ["router", "MilestoneIn", "WorkshopCreate"]
 
 log = structlog.get_logger("helmsman")
 
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin_key)])
-
-NAME_MAX = 120
-DESCRIPTION_MAX = 10_000
-MILESTONES_MAX = 50
-MILESTONE_TITLE_MAX = 200
-MILESTONE_CONTENT_MAX = 20_000
-MILESTONE_MINUTES_MIN = 1
-MILESTONE_MINUTES_MAX = 480
-
-
-class MilestoneIn(BaseModel):
-    title: str
-    content_md: str = ""
-    minutes: int | None = None
-    input_config: dict | None = None
-
-    @field_validator("title")
-    @classmethod
-    def _trim_title(cls, value: str) -> str:
-        trimmed = value.strip()
-        if not (1 <= len(trimmed) <= MILESTONE_TITLE_MAX):
-            raise ValueError(f"milestone title must be 1–{MILESTONE_TITLE_MAX} characters")
-        return trimmed
-
-    @field_validator("content_md")
-    @classmethod
-    def _limit_content(cls, value: str) -> str:
-        if len(value) > MILESTONE_CONTENT_MAX:
-            raise ValueError(f"milestone content must be at most {MILESTONE_CONTENT_MAX} characters")
-        return value
-
-    @field_validator("minutes")
-    @classmethod
-    def _check_minutes(cls, value: int | None) -> int | None:
-        if value is not None and not (MILESTONE_MINUTES_MIN <= value <= MILESTONE_MINUTES_MAX):
-            raise ValueError(
-                f"minutes must be between {MILESTONE_MINUTES_MIN} and {MILESTONE_MINUTES_MAX}"
-            )
-        return value
-
-
-class WorkshopCreate(BaseModel):
-    name: str
-    description_md: str = ""
-    milestones: list[MilestoneIn] = Field(min_length=1, max_length=MILESTONES_MAX)
-    join_form: list[dict] = Field(default_factory=list)
-
-    @field_validator("join_form")
-    @classmethod
-    def _check_join_form(cls, value: list[dict]) -> list[dict]:
-        try:
-            return validate_field_defs(value)
-        except JoinFormError as exc:
-            raise ValueError(str(exc)) from exc
-
-    @field_validator("name")
-    @classmethod
-    def _trim_name(cls, value: str) -> str:
-        trimmed = value.strip()
-        if not (1 <= len(trimmed) <= NAME_MAX):
-            raise ValueError(f"name must be 1–{NAME_MAX} characters")
-        return trimmed
-
-    @field_validator("description_md")
-    @classmethod
-    def _limit_description(cls, value: str) -> str:
-        if len(value) > DESCRIPTION_MAX:
-            raise ValueError(f"description must be at most {DESCRIPTION_MAX} characters")
-        return value
-
-
-def _unique_admin_token(session: Session) -> str:
-    while True:
-        token = generate_admin_token()
-        if session.scalar(select(Workshop.id).where(Workshop.admin_token == token)) is None:
-            return token
-
-
-def _unique_join_slug(session: Session) -> str:
-    while True:
-        slug = generate_join_slug()
-        if session.scalar(select(Workshop.id).where(Workshop.join_slug == slug)) is None:
-            return slug
-
-
-def _workshop_urls(base: str, workshop: Workshop) -> dict:
-    return {
-        "join_url": f"{base}/j/{workshop.join_slug}",
-        "facilitator_url": f"{base}/f/{workshop.admin_token}",
-    }
 
 
 @router.get("/workshops")
@@ -147,7 +52,9 @@ def list_workshops(request: Request, session: Session = Depends(get_session)) ->
             "open_help_count": open_help_counts.get(w.id, 0),
             "created_at": iso_z(w.created_at),
             "join_slug": w.join_slug,
-            **_workshop_urls(base, w),
+            **workshop_urls(base, w),
+            "created_via": w.created_via,
+            "creator_email": w.creator_email,
         }
         for w in workshops
     ]
@@ -158,63 +65,10 @@ def list_workshops(request: Request, session: Session = Depends(get_session)) ->
 def create_workshop(
     body: WorkshopCreate, request: Request, session: Session = Depends(get_session)
 ) -> dict:
-    base = request_base_url(request)
-    workshop = Workshop(
-        name=body.name,
-        description_md=body.description_md,
-        admin_token=_unique_admin_token(session),
-        join_slug=_unique_join_slug(session),
-        status="live",
-    )
-    workshop.join_form_json = json.dumps(body.join_form)
-    session.add(workshop)
-    session.flush()
-
-    for position, milestone in enumerate(body.milestones):
-        try:
-            input_config = validate_input_config(milestone.input_config)
-        except MilestoneInputError as exc:
-            raise api_error("validation_error", str(exc), 422)
-        session.add(
-            Milestone(
-                workshop_id=workshop.id,
-                position=position,
-                title=milestone.title,
-                content_md=milestone.content_md,
-                minutes=milestone.minutes,
-                input_config_json=json.dumps(input_config) if input_config else None,
-            )
-        )
-
-    record_action(
+    return create_workshop_record(
         session,
-        workshop.id,
-        "facilitator",
-        "workshop.create",
-        {"name": workshop.name, "milestone_count": len(body.milestones)},
+        body,
+        created_via="admin",
+        creator_email=None,
+        base_url=request_base_url(request),
     )
-    log.info(
-        "workshop.created",
-        workshop_id=workshop.id,
-        name=workshop.name,
-        milestone_count=len(body.milestones),
-    )
-
-    payload = ok(
-        {
-            "workshop": {
-                "id": workshop.id,
-                "name": workshop.name,
-                "description_md": workshop.description_md,
-                "status": workshop.status,
-                "paused": workshop.paused,
-                "ai_enabled": workshop.ai_enabled,
-                "admin_token": workshop.admin_token,
-                "join_slug": workshop.join_slug,
-                **_workshop_urls(base, workshop),
-                "created_at": iso_z(workshop.created_at),
-            }
-        }
-    )
-    session.commit()  # visible before the response reaches the client
-    return payload

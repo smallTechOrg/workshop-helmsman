@@ -29,7 +29,9 @@ This is the contract both generators build against **in parallel** — the backe
 
 ### Pretty redirect routes (not JSON API)
 
-`GET /` → `/app/` · `GET /j/{join_slug}` → `/app/join/?s=…` · `GET /p/{participant_token}` → `/app/p/?t=…` · `GET /f/{admin_token}` → `/app/f/?t=…` — all 307. **Phase 1.**
+`GET /j/{join_slug}` → `/app/join/?s=…` · `GET /p/{participant_token}` → `/app/p/?t=…` · `GET /f/{admin_token}` → `/app/f/?t=…` — all 307. **Phase 1.**
+`GET /admin` → `/app/admin/` — 307. **Phase 6.**
+`GET /` — **Phase 1:** 307 → `/app/`. **Phase 6:** no longer a redirect — it serves the public marketing landing page HTML directly (200, `text/html`). See architecture.md §Serving the landing page at `/`.
 
 ---
 
@@ -263,3 +265,60 @@ Phase 4 **activates** (shapes normative now): dashboard `"spend": {"total_cost_u
 ---
 
 *Phase 5 (deploy) adds no API surface.*
+
+---
+
+# Phase 6 endpoints — Public landing page & self-service creation
+
+## `POST /api/public/workshops` — **no auth** (no `X-Admin-Key`, no token)
+
+The keyless twin of `POST /api/admin/workshops`. Both routes call the **same** creation service (`src/helmsman/services/workshops.py` → `create_workshop(session, spec, *, created_via, creator_email, base_url)`), so the two paths cannot drift; the public route differs only in the auth dependency (none), the required `creator_email`, and `created_via="public"`.
+
+Request — identical to the admin body plus `creator_email`:
+```json
+{"name": "LangGraph Lab — July", "description_md": "Welcome!…",
+ "milestones": [{"title": "Set up your environment", "content_md": "```bash\nuv sync\n```", "minutes": 30, "input_config": null}],
+ "join_form": [],
+ "creator_email": "asha@example.com"}
+```
+
+Validation: `name`, `description_md`, `milestones`, `join_form` and per-milestone rules are **exactly** the admin rules (unchanged, same validators). `creator_email` — required, non-null, trimmed and lower-cased before storage, 3–254 chars, must match a single-`@` address with a dot-bearing domain and no whitespace (regex `^[^@\s]+@[^@\s]+\.[^@\s]+$`).
+
+Response — **the same full-workshop payload as the admin create** (so the frontend reuses one type), plus the two new fields:
+```json
+{"data": {"workshop": {
+  "id": 42, "name": "…", "description_md": "…", "status": "live", "paused": false, "ai_enabled": false,
+  "admin_token": "<43 chars>", "join_slug": "Ab3dEfGh",
+  "join_url": "…/j/Ab3dEfGh", "facilitator_url": "…/f/<admin_token>",
+  "created_via": "public", "creator_email": "asha@example.com",
+  "created_at": "2026-08-03T09:00:00Z"
+}}, "error": null}
+```
+
+Side effects: identical to admin create — one `workshop` row (`created_via="public"`, `creator_email` set), its milestones, audit row `workshop.create` (`detail_json` additionally carries `{"created_via": "public"}`), log event `workshop.created` with `created_via="public"` and the email **masked** to its first 2 characters + domain (`as***@example.com`).
+
+Errors (exact codes):
+
+| HTTP | `code` | When |
+|---|---|---|
+| 422 | `validation_error` | Missing/blank `creator_email`, malformed address, >254 chars — message: `"creator_email: enter a valid email address"`. Also every existing body-validation failure, with the existing messages |
+| 410 | `workshop_archived` | n/a here (listed for completeness — creation never returns it) |
+| 500 | `internal_error` | Unexpected |
+
+There is **no** `invalid_admin_key` on this route: presenting an `X-Admin-Key` header is neither required nor rejected — it is ignored.
+
+> **Assumed:** no rate limit, no cap, no captcha, no email verification and no mail send on this endpoint — the email is a deterrent and a contact trail only. Recorded as an accepted risk in architecture.md §Auth model.
+
+## Changes to the existing admin surface (additive only)
+
+### `POST /api/admin/workshops`
+Unchanged request. The response `workshop` object gains `"created_via": "admin"` and `"creator_email": null`. Behaviour, validation, audit row and status are otherwise identical.
+
+### `GET /api/admin/workshops`
+Unchanged request/auth/sort. Each row in `workshops[]` gains two fields:
+```json
+{"…existing fields…", "created_via": "public", "creator_email": "asha@example.com"}
+```
+`creator_email` is `null` for admin-created workshops. This is the **only** surface on which `creator_email` is ever returned — it appears in no facilitator, participant, poll or public payload.
+
+*No other endpoint's request or response changes in Phase 6.*
