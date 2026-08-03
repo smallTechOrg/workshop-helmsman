@@ -115,6 +115,9 @@ export interface MilestoneMeta {
 // Admin surface (header X-Admin-Key)
 // ---------------------------------------------------------------------------
 
+/** Where a workshop came from — spec/api.md §Phase 6. */
+export type WorkshopOrigin = "admin" | "public";
+
 export interface AdminWorkshopSummary {
   id: number;
   name: string;
@@ -125,6 +128,9 @@ export interface AdminWorkshopSummary {
   join_slug: string;
   join_url: string;
   facilitator_url: string;
+  /** Phase 6 — admin surface only. Older servers omit these. */
+  created_via?: WorkshopOrigin;
+  creator_email?: string | null;
 }
 
 export interface WorkshopFull {
@@ -139,6 +145,9 @@ export interface WorkshopFull {
   join_url: string;
   facilitator_url: string;
   created_at: string;
+  /** Phase 6 — present on public creates; `"admin"`/`null` on admin creates. */
+  created_via?: WorkshopOrigin;
+  creator_email?: string | null;
 }
 
 export interface MilestoneInput {
@@ -170,6 +179,28 @@ export function adminCreateWorkshop(
   return request("/api/admin/workshops", {
     method: "POST",
     headers: { "X-Admin-Key": adminKey },
+    body: JSON.stringify(body),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Public surface (no auth) — spec/api.md §Phase 6
+// ---------------------------------------------------------------------------
+
+export interface PublicCreateWorkshopBody extends CreateWorkshopBody {
+  /** Required. Trimmed + lower-cased server-side; stored, admin-visible only. */
+  creator_email: string;
+}
+
+/**
+ * Keyless twin of `adminCreateWorkshop` — `POST /api/public/workshops`.
+ * No `X-Admin-Key` is sent (the route ignores one if present).
+ */
+export function createPublicWorkshop(
+  body: PublicCreateWorkshopBody,
+): Promise<{ workshop: WorkshopFull }> {
+  return request("/api/public/workshops", {
+    method: "POST",
     body: JSON.stringify(body),
   });
 }

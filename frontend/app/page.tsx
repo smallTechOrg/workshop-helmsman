@@ -1,315 +1,481 @@
-"use client";
+/**
+ * Public marketing landing page — spec/capabilities.md C5.
+ *
+ * Served at `/` (FastAPI `FileResponse` over `frontend/out/index.html`) and, as
+ * a harmless alias, at `/app/`. It is a STATIC server component: no router
+ * hooks, no data fetching. The one dynamic bit — "Your workshops" — is a small
+ * `"use client"` island. All outbound links are plain `<a href>`, never
+ * `next/link`, because this HTML is also served from `/`.
+ *
+ * There is deliberately NO link to the admin console anywhere on this page.
+ */
 
-import { useCallback, useEffect, useState } from "react";
-import {
-  ApiError,
-  adminListWorkshops,
-  type AdminWorkshopSummary,
-  type WorkshopFull,
-} from "@/lib/api";
-import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { Skeleton } from "@/components/ui/Skeleton";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { StubBadge, StubCard } from "@/components/ui/StubBadge";
-import { useToast } from "@/components/ui/Toast";
-import { WorkshopCard } from "@/components/facilitator/WorkshopCard";
-import { CreateWorkshopModal } from "@/components/facilitator/CreateWorkshopModal";
+import type { Metadata } from "next";
+import { YourWorkshops } from "@/components/landing/YourWorkshops";
 
-const LS_ADMIN_KEY = "helmsman_admin_key";
+export const metadata: Metadata = {
+  title: "Workshop Helmsman — run a hands-on workshop without losing the room",
+  description:
+    "Free, self-hosted workshop tracker. Compose markdown milestones, share one join link, and watch 300+ participants move in real time. No signup, no accounts.",
+};
 
-type Phase = "boot" | "gate" | "authed";
+const CREATE_HREF = "/app/create/";
 
-export default function AdminHomePage() {
-  const toast = useToast();
-  const [phase, setPhase] = useState<Phase>("boot");
-  const [adminKey, setAdminKey] = useState("");
-  const [keyInput, setKeyInput] = useState("");
-  const [gateError, setGateError] = useState<string | null>(null);
-  const [gateChecking, setGateChecking] = useState(false);
-  const [workshops, setWorkshops] = useState<AdminWorkshopSummary[] | null>(null);
-  const [listError, setListError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [justCreatedId, setJustCreatedId] = useState<number | null>(null);
+// --------------------------------------------------------------------------
+// Content (data-driven so the markup stays readable)
+// --------------------------------------------------------------------------
 
-  const validateKey = useCallback(
-    async (key: string, fromSaved: boolean) => {
-      setGateChecking(true);
-      try {
-        const { workshops: list } = await adminListWorkshops(key);
-        try {
-          window.localStorage.setItem(LS_ADMIN_KEY, key);
-        } catch {
-          // Private-mode browsers: the key just won't persist.
-        }
-        setAdminKey(key);
-        setWorkshops(list);
-        setGateError(null);
-        setPhase("authed");
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 401) {
-          try {
-            window.localStorage.removeItem(LS_ADMIN_KEY);
-          } catch {
-            // ignore
-          }
-          setGateError(
-            fromSaved
-              ? "Your saved key no longer matches this server — enter it again."
-              : "invalid_key",
-          );
-        } else {
-          setGateError(
-            "Couldn't reach the server — check it's running, then try again.",
-          );
-        }
-        setPhase("gate");
-      } finally {
-        setGateChecking(false);
-      }
-    },
-    [],
-  );
+const FEATURES: {
+  icon: string;
+  title: string;
+  body: string;
+}[] = [
+  {
+    icon: "📊",
+    title: "A live dashboard across 300+ participants",
+    body: "Every participant, their progress and their current milestone, refreshed every couple of seconds. Median progress, the completion distribution and per-milestone counts tell you whether to slow down or push on.",
+  },
+  {
+    icon: "📝",
+    title: "Content-rich markdown & code milestones",
+    body: "Each milestone carries real instructions — headings, lists, links, tables and syntax-highlighted fenced code blocks. Write it once in the composer; the room reads it in their own browser at their own pace.",
+  },
+  {
+    icon: "🚪",
+    title: "Name-only joining, nothing to install",
+    body: "Participants open one link and type their first name. No account, no download, no app. A cookie auto-resumes them if they refresh or close the tab, and everyone gets a personal link that carries their progress to another device.",
+  },
+  {
+    icon: "🆘",
+    title: "A real-time help desk",
+    body: "A stuck participant raises a hand from the milestone they are on. It lands in your queue with their name and that milestone's context, you answer in markdown in-page, and the answer appears on their screen — no hands up, no shouting across the room.",
+  },
+  {
+    icon: "📣",
+    title: "Broadcast, pause and advance — room controls",
+    body: "Pin an announcement to every screen, pause the room while you demo at the front, or advance everyone (or a chosen few) past a milestone that broke. Every one of those actions is undoable for 30 seconds.",
+  },
+  {
+    icon: "🚨",
+    title: "Proactive stuck & bottleneck alerts",
+    body: "Helmsman watches the shape of the room for you: who has not moved for too long, which milestone is quietly swallowing everyone, and whether your pace is on track against the plan.",
+  },
+  {
+    icon: "🧾",
+    title: "A full audit trail",
+    body: "Every facilitator action — broadcasts, advances, pauses, edits, help answers — is recorded with who, what and when, and browsable in a tab on the dashboard. Nothing about the session is a mystery afterwards.",
+  },
+  {
+    icon: "⬇️",
+    title: "CSV export of everything",
+    body: "One click gives you every participant, their join answers, their completion times and their milestone-by-milestone progress — ready for your follow-up mail-out, your grading sheet or your retro.",
+  },
+];
 
-  useEffect(() => {
-    let saved: string | null = null;
-    try {
-      saved = window.localStorage.getItem(LS_ADMIN_KEY);
-    } catch {
-      // ignore
-    }
-    if (saved) {
-      void validateKey(saved, true);
-    } else {
-      setPhase("gate");
-    }
-  }, [validateKey]);
+const STEPS: { title: string; body: string }[] = [
+  {
+    title: "Compose your milestones",
+    body: "Name the workshop, write each step in markdown with the exact commands and code, and set an optional time budget per step.",
+  },
+  {
+    title: "Share one join link",
+    body: "Put the link (or its QR code) on the projector. That single link is everything the room needs.",
+  },
+  {
+    title: "The room joins by name",
+    body: "Participants type a first name and are straight into the first milestone. No accounts to create, no seats to assign.",
+  },
+  {
+    title: "Watch the dashboard move",
+    body: "Tick counts climb live. You can see instantly who has raced ahead, who is stuck, and where the whole room has bunched up.",
+  },
+  {
+    title: "Answer help without breaking the flow",
+    body: "Questions arrive with their milestone context. Answer in-page, broadcast the fix if three people hit it, or advance everyone past a bad step.",
+  },
+  {
+    title: "Export the results",
+    body: "When it ends, download the CSV. The workshop stays browsable as a read-only archive at the same link.",
+  },
+];
 
-  const refreshList = useCallback(async () => {
-    if (!adminKey) return;
-    setRefreshing(true);
-    setListError(null);
-    try {
-      const { workshops: list } = await adminListWorkshops(adminKey);
-      setWorkshops(list);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        setPhase("gate");
-        setGateError("Your key no longer matches this server — enter it again.");
-      } else {
-        setListError("Couldn't refresh the list — check your connection and try again.");
-      }
-    } finally {
-      setRefreshing(false);
-    }
-  }, [adminKey]);
+const FAQS: { q: string; a: React.ReactNode }[] = [
+  {
+    q: "Do I need an account?",
+    a: (
+      <>
+        No. There is no signup, no password and no login anywhere in Workshop
+        Helmsman. When you create a workshop you are given a private facilitator
+        link — <strong>that link is the credential</strong>. Anyone holding it can run
+        that workshop; anyone without it cannot see it.
+      </>
+    ),
+  },
+  {
+    q: "What happens if I lose my dashboard link?",
+    a: (
+      <>
+        You lose your way back in. There is no account to recover and no password
+        reset, so <strong>save the dashboard link the moment it is shown to you</strong> —
+        bookmark it, paste it into your notes, mail it to yourself. The reveal screen
+        gives you a copy button and says the same thing.
+      </>
+    ),
+  },
+  {
+    q: "Then what is the “Your workshops” list?",
+    a: (
+      <>
+        A convenience, not an account. Your browser remembers the workshops you made
+        here so you can jump back in from this page. Clear your browser data, switch
+        browsers or use a private window and the list is gone — the workshop itself is
+        untouched and still reachable at its link.
+      </>
+    ),
+  },
+  {
+    q: "What do participants need?",
+    a: (
+      <>
+        A browser and the join link. Nothing to install, no account, no extension.
+        It works on a laptop or a phone, and their progress survives a refresh, a
+        closed tab or a move to another device via their personal link.
+      </>
+    ),
+  },
+  {
+    q: "Is it really free? Where does my data live?",
+    a: (
+      <>
+        Yes — Workshop Helmsman is free and open, and it is self-hosted: the workshop
+        data lives in this instance's own database, on the machine serving this page.
+        No third party gets your participants' names.
+      </>
+    ),
+  },
+  {
+    q: "Why do you ask for my email at the end?",
+    a: (
+      <>
+        Purely so the person running this instance can contact you about your
+        workshop if they have to, and as a light deterrent against abuse.{" "}
+        <strong>No mail is ever sent to you</strong> — not a confirmation, not a
+        newsletter — and it is never shared. Your dashboard link is shown on screen,
+        not mailed.
+      </>
+    ),
+  },
+  {
+    q: "How many people can join one workshop?",
+    a: (
+      <>
+        It is built and tested for rooms of 300+ concurrent participants on modest
+        hardware. A typical lab of 20–60 will not make it break a sweat.
+      </>
+    ),
+  },
+];
 
-  const onCreated = (workshop: WorkshopFull) => {
-    setCreateOpen(false);
-    setJustCreatedId(workshop.id);
-    toast.show(`“${workshop.name}” is live`, "success");
-    void refreshList();
-  };
+// --------------------------------------------------------------------------
+// Page
+// --------------------------------------------------------------------------
 
-  const signOut = () => {
-    try {
-      window.localStorage.removeItem(LS_ADMIN_KEY);
-    } catch {
-      // ignore
-    }
-    setAdminKey("");
-    setWorkshops(null);
-    setKeyInput("");
-    setGateError(null);
-    setPhase("gate");
-  };
-
-  // ------------------------------------------------------------- boot
-  if (phase === "boot") {
-    return (
-      <main className="mx-auto max-w-5xl px-4 py-10">
-        <Skeleton className="h-8 w-64" />
-        <div className="mt-8 grid gap-4 sm:grid-cols-2">
-          <Skeleton className="h-48" />
-          <Skeleton className="h-48" />
-        </div>
-      </main>
-    );
-  }
-
-  // ------------------------------------------------------------- gate
-  if (phase === "gate") {
-    return (
-      <main className="flex min-h-screen items-center justify-center px-4">
-        <Card className="w-full max-w-md p-8">
-          <div className="mb-6 text-center">
-            <p aria-hidden="true" className="text-3xl">
-              ⛵
-            </p>
-            <h1 className="mt-2 text-xl font-semibold text-stone-900">
-              Workshop Helmsman
-            </h1>
-            <p className="mt-1 text-sm text-stone-500">
-              Enter this server's facilitator access key to manage workshops.
-            </p>
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const key = keyInput.trim();
-              if (key === "") {
-                setGateError("invalid_key_empty");
-                return;
-              }
-              void validateKey(key, false);
-            }}
-          >
-            <label
-              htmlFor="admin-key"
-              className="mb-1 block text-sm font-medium text-stone-700"
-            >
-              Access key
-            </label>
-            <input
-              id="admin-key"
-              data-testid="admin-key-input"
-              type="password"
-              autoComplete="current-password"
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-stone-900 focus:border-brand-500"
-            />
-            {gateError && (
-              <p role="alert" className="mt-2 text-sm text-red-600">
-                {gateError === "invalid_key" ? (
-                  <>
-                    That key doesn't match this server's{" "}
-                    <code className="rounded bg-red-50 px-1 font-mono text-xs">
-                      HELMSMAN_ADMIN_KEY
-                    </code>
-                    .
-                  </>
-                ) : gateError === "invalid_key_empty" ? (
-                  "Enter the access key to continue."
-                ) : (
-                  gateError
-                )}
-              </p>
-            )}
-            <Button
-              type="submit"
-              data-testid="admin-key-submit"
-              loading={gateChecking}
-              className="mt-4 w-full"
-            >
-              Enter
-            </Button>
-          </form>
-        </Card>
-      </main>
-    );
-  }
-
-  // ----------------------------------------------------------- authed
-  const list = workshops ?? [];
-
+export default function LandingPage() {
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8">
-      <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span aria-hidden="true" className="text-2xl">
-            ⛵
+    <div className="min-h-screen bg-stone-50 text-stone-900">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:shadow"
+      >
+        Skip to content
+      </a>
+
+      {/* ------------------------------------------------------------ nav */}
+      <header className="border-b border-stone-200/80 bg-white/80 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
+          <span className="flex items-center gap-2 font-semibold tracking-tight">
+            <span aria-hidden="true" className="text-xl">
+              ⛵
+            </span>
+            Workshop Helmsman
           </span>
-          <h1 className="text-xl font-semibold text-stone-900">Workshop Helmsman</h1>
+          <nav aria-label="Page sections" className="hidden items-center gap-6 text-sm text-stone-600 sm:flex">
+            <a href="#features" className="hover:text-stone-900">
+              Features
+            </a>
+            <a href="#how-it-works" className="hover:text-stone-900">
+              How it works
+            </a>
+            <a href="#faq" className="hover:text-stone-900">
+              FAQ
+            </a>
+          </nav>
         </div>
-        <nav aria-label="Admin actions" className="flex flex-wrap items-center gap-2">
-          <span
-            aria-disabled="true"
-            className="inline-flex items-center gap-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-1.5 text-sm font-medium text-stone-400 select-none"
-          >
-            Template library
-            <StubBadge />
-          </span>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void refreshList()}
-            loading={refreshing}
-          >
-            Refresh
-          </Button>
-          <Button variant="ghost" size="sm" onClick={signOut}>
-            Sign out
-          </Button>
-          <Button
-            data-testid="new-workshop-button"
-            size="sm"
-            onClick={() => setCreateOpen(true)}
-          >
-            + New workshop
-          </Button>
-        </nav>
       </header>
 
-      {listError && (
-        <p
-          role="alert"
-          className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700"
+      <main id="main">
+        {/* --------------------------------------------------------- hero */}
+        <section
+          data-testid="landing-hero"
+          aria-labelledby="hero-heading"
+          className="relative overflow-hidden border-b border-stone-200 bg-gradient-to-b from-brand-50 via-white to-stone-50"
         >
-          {listError}
-          <Button variant="secondary" size="sm" onClick={() => void refreshList()}>
-            Retry
-          </Button>
-        </p>
-      )}
-
-      <section aria-labelledby="live-heading">
-        <h2
-          id="live-heading"
-          className="mb-3 text-sm font-semibold tracking-wide text-stone-500 uppercase"
-        >
-          Live
-        </h2>
-        {list.length === 0 ? (
-          <EmptyState
-            icon="🧭"
-            title="No workshops yet — create your first."
-            hint="A workshop is one live session: milestones, a join link for the room, and a live dashboard."
-            action={
-              <Button onClick={() => setCreateOpen(true)}>+ New workshop</Button>
-            }
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -top-24 -right-24 size-96 rounded-full bg-brand-200/40 blur-3xl"
           />
-        ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
-            {list.map((w) => (
-              <WorkshopCard
-                key={w.id}
-                workshop={w}
-                justCreated={w.id === justCreatedId}
-              />
-            ))}
+          <div className="relative mx-auto grid max-w-6xl gap-12 px-4 py-16 sm:px-6 sm:py-24 lg:grid-cols-2 lg:items-center">
+            <div>
+              <p className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-white/80 px-3 py-1 text-xs font-medium text-brand-700">
+                <span aria-hidden="true">●</span>
+                Free · self-hosted · no signup
+              </p>
+              <h1
+                id="hero-heading"
+                className="mt-5 text-4xl leading-[1.1] font-semibold tracking-tight text-stone-900 sm:text-5xl lg:text-6xl"
+              >
+                Run a hands-on workshop{" "}
+                <span className="text-brand-600">without losing the room.</span>
+              </h1>
+              <p className="mt-5 max-w-xl text-lg leading-relaxed text-stone-600">
+                Workshop Helmsman turns your agenda into live milestones your
+                participants tick off in their browser — so you can see, in real time,
+                exactly who is flying, who is stuck and which step is quietly
+                swallowing everybody.
+              </p>
+
+              <div className="mt-8 flex flex-wrap items-center gap-4">
+                <a
+                  data-testid="landing-cta"
+                  href={CREATE_HREF}
+                  className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-6 py-3.5 text-base font-semibold text-white shadow-lg shadow-brand-600/20 transition-colors hover:bg-brand-700 active:bg-brand-800"
+                >
+                  Create your workshop — free, no signup
+                  <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" className="size-5">
+                    <path fillRule="evenodd" d="M3 10a.75.75 0 0 1 .75-.75h10.638L10.23 5.29a.75.75 0 1 1 1.04-1.08l5.5 5.25a.75.75 0 0 1 0 1.08l-5.5 5.25a.75.75 0 1 1-1.04-1.08l4.158-3.96H3.75A.75.75 0 0 1 3 10Z" clipRule="evenodd" />
+                  </svg>
+                </a>
+                <a
+                  href="#how-it-works"
+                  className="text-sm font-medium text-stone-600 underline underline-offset-4 hover:text-stone-900"
+                >
+                  See how it works
+                </a>
+              </div>
+
+              <p className="mt-4 text-sm text-stone-500">
+                Takes about two minutes. Nothing to install — for you or for the room.
+              </p>
+            </div>
+
+            {/* Indicative dashboard vignette (static illustration, not live data) */}
+            <div aria-hidden="true" className="lg:justify-self-end">
+              <div className="w-full max-w-md rounded-2xl border border-stone-200 bg-white p-5 shadow-xl shadow-stone-900/5">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-stone-800">LangGraph Lab</p>
+                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                    live
+                  </span>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+                  {[
+                    ["143", "joined"],
+                    ["121", "active"],
+                    ["40%", "median"],
+                  ].map(([n, l]) => (
+                    <div key={l} className="rounded-lg bg-stone-50 py-2.5">
+                      <p className="text-lg font-semibold text-stone-900">{n}</p>
+                      <p className="text-xs text-stone-500">{l}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 space-y-3">
+                  {[
+                    ["Set up your environment", 96],
+                    ["Build the graph", 71],
+                    ["Add a tool node", 34],
+                    ["Ship it", 9],
+                  ].map(([label, pct]) => (
+                    <div key={label as string}>
+                      <div className="mb-1 flex items-center justify-between text-xs">
+                        <span className="text-stone-600">{label}</span>
+                        <span className="tabular-nums text-stone-400">{pct}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-stone-100">
+                        <div
+                          className="h-full rounded-full bg-brand-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  ⚠ 4 participants stuck on “Add a tool node” for 12+ min
+                </div>
+              </div>
+            </div>
           </div>
-        )}
-      </section>
+        </section>
 
-      <section aria-label="Future workshop groups" className="mt-8 grid gap-4 sm:grid-cols-2">
-        <StubCard
-          title="Upcoming"
-          description="Workshops scheduled with a start time will group here."
-        />
-        <StubCard
-          title="Ended"
-          description="Ended workshops will group here, browsable as read-only archives."
-        />
-      </section>
+        {/* ----------------------------------------------------- features */}
+        <section
+          id="features"
+          data-testid="landing-features"
+          aria-labelledby="features-heading"
+          className="mx-auto max-w-6xl scroll-mt-16 px-4 py-20 sm:px-6"
+        >
+          <p className="text-sm font-semibold tracking-wide text-brand-600 uppercase">
+            What you get
+          </p>
+          <h2
+            id="features-heading"
+            className="mt-2 max-w-2xl text-3xl font-semibold tracking-tight text-stone-900 sm:text-4xl"
+          >
+            Everything you need to run the room, and nothing you don't.
+          </h2>
+          <p className="mt-3 max-w-2xl text-stone-600">
+            One tool, built for the awkward middle of a workshop — when half the room
+            is ahead, a quarter is stuck, and you cannot tell which is which.
+          </p>
 
-      <CreateWorkshopModal
-        open={createOpen}
-        adminKey={adminKey}
-        onClose={() => setCreateOpen(false)}
-        onCreated={onCreated}
-      />
-    </main>
+          <ul className="mt-12 grid gap-x-10 gap-y-10 sm:grid-cols-2">
+            {FEATURES.map((f) => (
+              <li key={f.title} className="flex gap-4">
+                <span
+                  aria-hidden="true"
+                  className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-xl"
+                >
+                  {f.icon}
+                </span>
+                <div>
+                  <h3 className="text-base font-semibold text-stone-900">{f.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-stone-600">
+                    {f.body}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {/* -------------------------------------------------- how it works */}
+        <section
+          id="how-it-works"
+          data-testid="landing-how-it-works"
+          aria-labelledby="how-heading"
+          className="scroll-mt-16 border-y border-stone-200 bg-white"
+        >
+          <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
+            <p className="text-sm font-semibold tracking-wide text-brand-600 uppercase">
+              How it works
+            </p>
+            <h2
+              id="how-heading"
+              className="mt-2 max-w-2xl text-3xl font-semibold tracking-tight text-stone-900 sm:text-4xl"
+            >
+              The facilitator → participant loop, end to end.
+            </h2>
+
+            <ol className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+              {STEPS.map((s, i) => (
+                <li key={s.title} className="relative rounded-xl border border-stone-200 bg-stone-50/70 p-6">
+                  <span className="flex size-9 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white">
+                    {i + 1}
+                  </span>
+                  <h3 className="mt-4 text-base font-semibold text-stone-900">
+                    {s.title}
+                  </h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-stone-600">
+                    {s.body}
+                  </p>
+                </li>
+              ))}
+            </ol>
+
+            <div className="mt-12 flex flex-wrap items-center gap-4 rounded-xl border border-brand-200 bg-brand-50 px-6 py-5">
+              <p className="text-sm text-stone-700">
+                That is the whole loop. Your first workshop takes about two minutes to
+                compose.
+              </p>
+              <a
+                href={CREATE_HREF}
+                className="ml-auto text-sm font-semibold text-brand-700 underline underline-offset-4 hover:text-brand-800"
+              >
+                Start composing →
+              </a>
+            </div>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------ your workshops */}
+        <YourWorkshops />
+
+        {/* ---------------------------------------------------------- FAQ */}
+        <section
+          id="faq"
+          data-testid="landing-faq"
+          aria-labelledby="faq-heading"
+          className="mx-auto max-w-3xl scroll-mt-16 px-4 py-20 sm:px-6"
+        >
+          <p className="text-sm font-semibold tracking-wide text-brand-600 uppercase">
+            Straight answers
+          </p>
+          <h2
+            id="faq-heading"
+            className="mt-2 text-3xl font-semibold tracking-tight text-stone-900 sm:text-4xl"
+          >
+            Frequently asked questions
+          </h2>
+          <p className="mt-3 text-stone-600">
+            Including the limits — they are real, and better known before you start
+            than after.
+          </p>
+
+          <dl className="mt-10 divide-y divide-stone-200 border-y border-stone-200">
+            {FAQS.map((f) => (
+              <div key={f.q} className="py-5">
+                <dt className="text-base font-semibold text-stone-900">{f.q}</dt>
+                <dd className="mt-2 text-sm leading-relaxed text-stone-600">{f.a}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <div className="mt-12 rounded-2xl border border-stone-200 bg-white p-8 text-center shadow-sm">
+            <h2 className="text-2xl font-semibold tracking-tight text-stone-900">
+              Ready when you are.
+            </h2>
+            <p className="mx-auto mt-2 max-w-md text-sm text-stone-600">
+              Compose your milestones, share the link, watch the room move.
+            </p>
+            <a
+              href={CREATE_HREF}
+              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-brand-600 px-6 py-3.5 text-base font-semibold text-white shadow-lg shadow-brand-600/20 transition-colors hover:bg-brand-700"
+            >
+              Create your workshop — free, no signup
+            </a>
+          </div>
+        </section>
+      </main>
+
+      {/* ------------------------------------------------------- footer */}
+      <footer className="border-t border-stone-200 bg-white">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-8 text-sm text-stone-500 sm:px-6">
+          <p>
+            <span aria-hidden="true">⛵</span> Workshop Helmsman — free and
+            self-hosted, run by whoever operates this instance.
+          </p>
+          <p>
+            <a
+              href="https://github.com/"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4 hover:text-stone-800"
+            >
+              Source &amp; licence
+            </a>
+          </p>
+        </div>
+      </footer>
+    </div>
   );
 }

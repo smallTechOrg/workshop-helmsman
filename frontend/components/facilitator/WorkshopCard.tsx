@@ -6,7 +6,7 @@ import {
   type AdminWorkshopSummary,
 } from "@/lib/api";
 import { Card } from "@/components/ui/Card";
-import { WorkshopStatusBadge } from "@/components/ui/Badge";
+import { Badge, WorkshopStatusBadge } from "@/components/ui/Badge";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { cn, formatDate } from "@/lib/format";
 
@@ -18,6 +18,10 @@ export function WorkshopCard({
   justCreated?: boolean;
 }) {
   const adminToken = tokenFromFacilitatorUrl(workshop.facilitator_url);
+  // Phase 6 (C7): origin + creator email — admin surface only. Servers that
+  // predate the field are treated as admin-created.
+  const isPublic = workshop.created_via === "public";
+  const creatorEmail = workshop.creator_email ?? null;
 
   return (
     <Card
@@ -32,8 +36,33 @@ export function WorkshopCard({
             {workshop.participant_count === 1 ? "participant" : "participants"} ·{" "}
             {workshop.open_help_count} open help
           </p>
+          {creatorEmail && (
+            <p className="mt-1 text-sm text-stone-500">
+              Created by{" "}
+              <a
+                data-testid="workshop-creator-email"
+                href={`mailto:${creatorEmail}`}
+                className="text-stone-700 underline underline-offset-2 hover:text-stone-900"
+              >
+                {creatorEmail}
+              </a>
+            </p>
+          )}
         </div>
-        <WorkshopStatusBadge status={workshop.status} />
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge
+            data-testid="workshop-origin-badge"
+            tone={isPublic ? "brand" : "neutral"}
+            title={
+              isPublic
+                ? "Created by a member of the public from the landing page"
+                : "Created from this admin console"
+            }
+          >
+            {isPublic ? "Public" : "Admin"}
+          </Badge>
+          <WorkshopStatusBadge status={workshop.status} />
+        </div>
       </div>
 
       {justCreated && (
