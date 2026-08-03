@@ -467,11 +467,11 @@ export default function LandingPage() {
           </p>
           <p>
             <a
-              href="https://github.com/"
+              href="https://github.com/smallTechOrg/workshop-helmsman"
               rel="noopener noreferrer"
               className="underline underline-offset-4 hover:text-stone-800"
             >
-              Source &amp; licence
+              Source
             </a>
           </p>
         </div>
