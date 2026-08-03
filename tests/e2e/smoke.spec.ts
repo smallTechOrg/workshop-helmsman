@@ -1,11 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { APP_BASE, ORIGIN } from './helpers';
+import { ADMIN_BASE, ORIGIN } from './helpers';
 
 /**
  * Independent smoke checks against the live single-origin app — no journey
  * state, fresh context per test. These pin the serving model itself
  * (architecture.md §Process model): one process on :8001 serving /api/* and
- * the styled static export at /app/*, with `GET /` redirecting into the app.
+ * the styled static export at /app/*. Phase 6: `GET /` no longer redirects —
+ * it serves the public landing page HTML directly (api.md §`GET /`), and the
+ * admin console lives at /app/admin/.
  */
 
 test.describe('smoke: single origin, health, styled render', () => {
@@ -16,13 +18,14 @@ test.describe('smoke: single origin, health, styled render', () => {
     expect(await res.json()).toEqual({ data: { status: 'ok', db: 'ok' }, error: null });
   });
 
-  test('the root URL redirects into the app shell', async ({ page }) => {
-    await page.goto(`${ORIGIN}/`);
-    expect(new URL(page.url()).pathname.startsWith('/app')).toBe(true);
+  test('the root URL serves the landing page HTML directly (no redirect)', async ({ page }) => {
+    const res = await page.goto(`${ORIGIN}/`);
+    expect(res?.status()).toBe(200);
+    expect(new URL(page.url()).pathname).toBe('/');
   });
 
   test('Admin Home loads styled, gated by the access-key card', async ({ page }) => {
-    await page.goto(`${APP_BASE}/`);
+    await page.goto(`${ADMIN_BASE}/`);
 
     // Fresh context (no stored key) → the access-key card is the entry state.
     const keyInput = page.getByTestId('admin-key-input');

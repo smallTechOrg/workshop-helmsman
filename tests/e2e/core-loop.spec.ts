@@ -5,7 +5,7 @@ import {
   type Locator,
   type Page,
 } from '@playwright/test';
-import { APP_BASE, adminKey, extractUrl } from './helpers';
+import { ADMIN_BASE, APP_BASE, adminKey, extractUrl } from './helpers';
 
 /**
  * Phase 1 core live loop — one serial journey against the live single-origin
@@ -128,7 +128,7 @@ test.describe.serial('Phase 1 — core live loop', () => {
   });
 
   test('facilitator signs in, creates a 3-milestone workshop, opens the live dashboard', async () => {
-    await fac.goto(`${APP_BASE}/`);
+    await fac.goto(`${ADMIN_BASE}/`);
     await fac.getByTestId('admin-key-input').fill(adminKey());
     await fac.getByTestId('admin-key-submit').click();
     await expect(fac.getByTestId('new-workshop-button')).toBeVisible();
@@ -165,7 +165,7 @@ test.describe.serial('Phase 1 — core live loop', () => {
     const card = fac.getByTestId('workshop-card').filter({ hasText: WORKSHOP_NAME }).first();
     await expect(async () => {
       if (!(await card.isVisible())) {
-        await fac.goto(`${APP_BASE}/`);
+        await fac.goto(`${ADMIN_BASE}/`);
       }
       await expect(card).toBeVisible({ timeout: 4000 });
     }).toPass({ timeout: 30_000 });
