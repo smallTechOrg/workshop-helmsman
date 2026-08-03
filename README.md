@@ -36,9 +36,20 @@ uv run alembic current        # MUST print a revision hash — blank output mean
 uv run python -m src
 ```
 
-Open **http://localhost:8001/app/** — enter your `HELMSMAN_ADMIN_KEY` to reach the Admin Home.
+Open **http://localhost:8001/** — the public landing page. From there, **Create your workshop** needs no access key: compose the workshop, give your email at the last step, and you are handed your facilitator dashboard link and the join link to share.
 
-Share links: join `http://localhost:8001/j/<slug>` · participant personal link `/p/<token>` · facilitator dashboard `/f/<token>`.
+### URLs
+
+| URL | What it is |
+|---|---|
+| `/` | Public landing page (served from the static export's `index.html`; falls back to a 307 → `/app/` if the frontend has not been built) |
+| `/app/create/` | Keyless self-service workshop creation |
+| `/admin` → `/app/admin/` | Admin console — enter your `HELMSMAN_ADMIN_KEY` to see **every** workshop, with its origin (`Admin`/`Public`) and the public creator's email. Not linked from the landing page |
+| `/j/<slug>` | Join link — share with the room |
+| `/p/<token>` | Participant personal link |
+| `/f/<token>` | Facilitator dashboard link — the only credential for a workshop; save it |
+
+There are no accounts and no login: a link is the credential. A workshop created from the public flow has the **full** facilitator toolset — it differs from an admin-created one only by its stored creator email and origin flag.
 
 ## Tests
 

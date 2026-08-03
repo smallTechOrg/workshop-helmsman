@@ -6,7 +6,7 @@ from urllib.parse import quote
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.helmsman import __version__
@@ -15,6 +15,7 @@ from src.helmsman.observability.logging import RequestLoggingMiddleware, configu
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_OUT_DIR = _REPO_ROOT / "frontend" / "out"
+LANDING_HTML = FRONTEND_OUT_DIR / "index.html"
 
 
 def _first_validation_message(exc: RequestValidationError) -> str:
@@ -67,16 +68,30 @@ def create_app() -> FastAPI:
             },
         )
 
-    from src.helmsman.api import admin, facilitator, health, participant
+    from src.helmsman.api import admin, facilitator, health, participant, public
 
     app.include_router(health.router)
     app.include_router(admin.router)
+    app.include_router(public.router)
     app.include_router(facilitator.router)
     app.include_router(participant.router)
 
     @app.get("/", include_in_schema=False)
-    def _root_redirect():
-        return RedirectResponse(url="/app/", status_code=307)
+    def _landing():
+        """The public marketing landing page — the export root served as-is.
+
+        Falls back to a 307 into /app/ when the frontend has not been built
+        (dev/CI without `pnpm build`), so the route is never a 404.
+        """
+        if not LANDING_HTML.is_file():
+            return RedirectResponse(url="/app/", status_code=307)
+        return FileResponse(
+            LANDING_HTML, media_type="text/html", headers={"Cache-Control": "no-cache"}
+        )
+
+    @app.get("/admin", include_in_schema=False)
+    def _admin_redirect():
+        return RedirectResponse(url="/app/admin/", status_code=307)
 
     @app.get("/j/{join_slug}", include_in_schema=False)
     def _join_redirect(join_slug: str):
