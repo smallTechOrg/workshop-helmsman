@@ -198,6 +198,13 @@ export default function LandingPage() {
               ⛵
             </span>
             Workshop Helmsman
+            <a
+              href="https://smalltech.in"
+              rel="noopener noreferrer"
+              className="ml-1 rounded-full border border-stone-300 px-2 py-0.5 text-xs font-medium text-stone-500 transition-colors hover:border-stone-400 hover:text-stone-800"
+            >
+              by smallTech
+            </a>
           </span>
           <nav aria-label="Page sections" className="hidden items-center gap-6 text-sm text-stone-600 sm:flex">
             <a href="#features" className="hover:text-stone-900">
@@ -465,7 +472,17 @@ export default function LandingPage() {
             <span aria-hidden="true">⛵</span> Workshop Helmsman — free and
             self-hosted, run by whoever operates this instance.
           </p>
-          <p>
+          <p className="flex items-center gap-4">
+            <span>
+              Built by{" "}
+              <a
+                href="https://smalltech.in"
+                rel="noopener noreferrer"
+                className="font-medium text-stone-700 underline underline-offset-4 hover:text-stone-900"
+              >
+                smallTech
+              </a>
+            </span>
             <a
               href="https://github.com/smallTechOrg/workshop-helmsman"
               rel="noopener noreferrer"
