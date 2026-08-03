@@ -272,10 +272,22 @@ test.describe.serial('Phase 6 — keyless public creation, end to end', () => {
     await expect(rows.filter({ hasText: /broadcast/i }).first()).toBeVisible();
     await expect(rows.filter({ hasText: /pause/i }).first()).toBeVisible();
 
-    // Nothing is a reduced tier: no "later phase" stub anywhere on the surface.
-    await expect(
-      creator.getByTestId('stub-badge').filter({ hasText: /later phase/i }),
-    ).toHaveCount(0);
+    // Nothing is a reduced tier: the parity controls themselves are REAL —
+    // enabled, not aria-disabled, and carrying no "later phase" stub badge.
+    // (The dashboard legitimately renders by-design labelled stubs for genuinely
+    // later-phase features — End workshop, AI help-desk, the stubbed stat card —
+    // identically for admin- and public-created workshops; core-loop.spec.ts
+    // requires them to be present. Parity is about the controls below.)
+    for (const id of ['broadcast-button', 'pause-button', 'audit-tab'] as const) {
+      const control = creator.getByTestId(id);
+      await expect(control, `${id} must be present for a public creator`).toBeVisible();
+      await expect(control, `${id} must be enabled for a public creator`).toBeEnabled();
+      await expect(control).not.toHaveAttribute('aria-disabled', 'true');
+      await expect(
+        control.getByTestId('stub-badge'),
+        `${id} must not be a labelled stub for a public creator`,
+      ).toHaveCount(0);
+    }
   });
 
   test('the admin sees the workshop in the full list with a Public badge and the creator email', async () => {
