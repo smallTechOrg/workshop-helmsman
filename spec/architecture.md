@@ -72,7 +72,7 @@ workshop-helmsman/                  ← repo root IS the project; all commands r
 │   ├── app/
 │   │   ├── layout.tsx              ← fonts, shell
 │   │   ├── globals.css             ← Tailwind v4 + @source "../"; + design tokens (@theme)
-│   │   ├── page.tsx                ← Phase 1–5: Admin Home · Phase 6: PUBLIC LANDING PAGE (served at / and /app/)
+│   │   ├── page.tsx                ← Phase 1–5: Admin Home · Phase 6: PUBLIC LANDING PAGE (served at / only)
 │   │   ├── admin/page.tsx          ← Phase 6: Admin Home moved here (access key + workshop list/create) — pretty /admin
 │   │   ├── create/page.tsx         ← Phase 6: public keyless create flow (/app/create/)
 │   │   ├── f/page.tsx              ← Facilitator Dashboard   (?t=<admin_token>)
@@ -108,12 +108,13 @@ Import convention: the application package is `src.helmsman.*` (the `src` packag
 **One process serves everything.** `uv run python -m src` starts one uvicorn worker on port **8001**:
 
 - `/api/*` — JSON API (FastAPI routers, sync `def` handlers on the threadpool).
-- `/app/*` — the built Next.js static export (`frontend/out/`), mounted with `StaticFiles(html=True)`. The canonical URL is `http://localhost:8001/app/`.
+- `/app/*` — the built Next.js static export (`frontend/out/`), mounted with `StaticFiles(html=True)`. Note `/app` and `/app/` themselves are **not** served by the mount from Phase 6 — they 307 to `/` (see below); every deeper path (`/app/create/`, `/app/admin/`, `/app/f/`, `/app/join/`, `/app/p/`, `/app/_next/…`) is served by the mount as normal.
 - **Pretty share links** (tiny FastAPI redirect routes, because a static export cannot serve dynamic path segments):
   - `GET /j/{join_slug}` → 307 → `/app/join/?s={join_slug}` (the link on the door)
   - `GET /p/{participant_token}` → 307 → `/app/p/?t={participant_token}` (personal link)
   - `GET /f/{admin_token}` → 307 → `/app/f/?t={admin_token}` (facilitator link)
   - `GET /` → 307 → `/app/` **(Phase 1–5 only; replaced in Phase 6 — see below)**
+  - `GET /app` and `GET /app/` → 307 → `/` (Phase 6; the landing page has exactly one URL)
   - `GET /admin` → 307 → `/app/admin/` (Phase 6; the pretty admin-console link)
 - No separate Node server in production. `pnpm dev` (port 3000) is inner-loop only and is never the documented test path.
 
@@ -125,7 +126,8 @@ From Phase 6 the instance is publicly reachable: `/` is a marketing landing page
 
 | Path | Serves | Auth |
 |---|---|---|
-| `/` | Public marketing landing page (200 HTML) | none |
+| `/` | Public marketing landing page (200 HTML) — its **only** URL | none |
+| `/app`, `/app/` | 307 → `/` (no duplicate landing page) | none |
 | `/app/create/` | Public create flow (same composer as admin) | none |
 | `/app/admin/` (pretty: `/admin`) | Admin console — key gate + all-workshops list, **behaviour unchanged**, only the URL moved off `/` | `X-Admin-Key` |
 | `/app/f/`, `/f/{admin_token}` | Facilitator dashboard | admin_token |
@@ -146,23 +148,30 @@ LANDING_HTML = FRONTEND_OUT_DIR / "index.html"
 @app.get("/", include_in_schema=False)
 def _landing():
     if not LANDING_HTML.is_file():          # frontend not built (dev/CI without pnpm build)
-        return RedirectResponse(url="/app/", status_code=307)
+        return PlainTextResponse("frontend not built — run `pnpm build` in frontend/",
+                                 status_code=503)
     return FileResponse(LANDING_HTML, media_type="text/html",
                         headers={"Cache-Control": "no-cache"})
+
+# Declared BEFORE app.mount("/app", StaticFiles(...)) so the routes take
+# precedence over the mount, which would otherwise serve index.html here.
+@app.get("/app", include_in_schema=False)
+@app.get("/app/", include_in_schema=False)
+def _app_root_redirect():
+    return RedirectResponse(url="/", status_code=307)
 ```
 
 Why this shape and no other:
 
 - **One export, one mount, one process, one origin.** No second Next app, no second static mount, no build-output copying, no rewrite proxy.
-- **Assets keep working unchanged.** With `basePath: '/app'`, every asset URL Next emits into that HTML is already absolute (`/app/_next/…`), so the identical bytes render correctly whether fetched at `/` or at `/app/`. `/app/` continues to serve the same landing page — `/` is the canonical URL, `/app/` is a harmless alias.
+- **Assets keep working unchanged.** With `basePath: '/app'`, every asset URL Next emits into that HTML is already absolute (`/app/_next/…`), so the identical bytes render correctly when fetched at `/`.
 - **`FileResponse`, not a redirect,** because the brief requires `/` itself to *be* the page (a stranger's first impression, shareable, indexable).
+- **Exactly one URL for the landing page.** The export root is also addressable at `/app/` through the mount; that duplication is removed by 307-ing `/app` and `/app/` to `/`. Because `/app/` no longer serves anything, the unbuilt-export branch of `GET /` must **not** redirect there (it would loop) — it returns a plain-text **503 "frontend not built"** instead.
 
 Two constraints the frontend slice must honour so this is safe (a generator must not guess here):
 
-1. **The landing page is a static server component** — no `useRouter`/`usePathname`/`useSearchParams`, no data fetching. It hydrates identically at `/` and `/app/`.
+1. **The landing page is a static server component** — no `useRouter`/`usePathname`/`useSearchParams`, no data fetching. It hydrates correctly when served at `/`.
 2. **Every link out of the landing page is a plain `<a href="/app/create/">`, not `next/link`** — so navigation off `/` is a full document load into the properly-based route, and the App Router never attempts a client-side RSC fetch for a path outside its `basePath`. (`next/link` remains the norm *inside* `/app/*`, where it is correct.)
-
-> **Assumed:** `/app/` remaining a duplicate of `/` is acceptable (no canonical-URL/SEO work is in scope); a `<link rel="canonical" href="/">` tag on the landing page is the one nod to it.
 
 ## Live-update mechanism: versioned coalesced polling (decision + justification)
 
@@ -276,5 +285,5 @@ The credential table above is **unchanged**. Creation simply stops requiring the
 | Static Next.js export served by FastAPI at `/app/` + pretty-link redirects | Single origin, one process, harness gate path; dynamic tokens carried in query params where the static router needs them, pretty in shared URLs |
 | Lazy lifecycle transitions on access | No scheduler process to crash or restart; correctness derives from the DB clock check |
 | Audit + undo share one table (`facilitator_action`) | One write per action serves the audit trail, the undo window, and AI-answer logging |
-| Landing page = the export root, served at `/` by `FileResponse` (Phase 6) | Public `/` without a second app, second mount or proxy; `basePath: '/app'` already makes every asset URL absolute, so the same bytes render at `/` and `/app/` |
+| Landing page = the export root, served at `/` by `FileResponse` (Phase 6) | Public `/` without a second app, second mount or proxy; `basePath: '/app'` already makes every asset URL absolute, so the same bytes render at `/`; `/app` and `/app/` 307 to `/` so the page has one URL |
 | One creation service called by both the admin and public routes (Phase 6) | Admin- and public-created workshops are identical records apart from `creator_email` + `created_via`; validation cannot drift between two copies |

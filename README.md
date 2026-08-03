@@ -42,7 +42,7 @@ Open **http://localhost:8001/** — the public landing page. From there, **Creat
 
 | URL | What it is |
 |---|---|
-| `/` | Public landing page (served from the static export's `index.html`; falls back to a 307 → `/app/` if the frontend has not been built) |
+| `/` | Public landing page — its **only** URL (served from the static export's `index.html`; returns 503 "frontend not built" if you have not run `pnpm build`). `/app` and `/app/` 307 back here |
 | `/app/create/` | Keyless self-service workshop creation |
 | `/admin` → `/app/admin/` | Admin console — enter your `HELMSMAN_ADMIN_KEY` to see **every** workshop, with its origin (`Admin`/`Public`) and the public creator's email. Not linked from the landing page |
 | `/j/<slug>` | Join link — share with the room |

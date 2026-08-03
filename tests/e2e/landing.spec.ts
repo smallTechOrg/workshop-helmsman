@@ -36,6 +36,16 @@ test.describe('Phase 6 — public landing page at /', () => {
     expect(html).toContain('data-testid="landing-cta"');
   });
 
+  test('the landing page has exactly one URL — /app and /app/ 307 back to /', async ({
+    request,
+  }) => {
+    for (const path of ['/app', '/app/']) {
+      const res = await request.get(`${ORIGIN}${path}`, { maxRedirects: 0 });
+      expect(res.status(), `${path} must not serve a duplicate landing page`).toBe(307);
+      expect(res.headers()['location']).toBe('/');
+    }
+  });
+
   test('GET /admin is the pretty redirect to the relocated console', async ({ request }) => {
     const res = await request.get(`${ORIGIN}/admin`, { maxRedirects: 0 });
     expect(res.status()).toBe(307);

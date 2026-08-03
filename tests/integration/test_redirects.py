@@ -10,6 +10,9 @@ from src.helmsman.api import LANDING_HTML
         ("/j/Ab3dEfGh", "/app/join/?s=Ab3dEfGh"),
         ("/p/some-participant-token", "/app/p/?t=some-participant-token"),
         ("/f/some-admin-token", "/app/f/?t=some-admin-token"),
+        # The landing page has exactly one URL — the export root alias folds into `/`.
+        ("/app", "/"),
+        ("/app/", "/"),
     ],
 )
 def test_pretty_redirects_are_307_to_exact_targets(client, path, target):
@@ -36,11 +39,13 @@ def test_root_serves_the_landing_page_html_when_the_export_is_built(
     assert "<html" in response.text.lower()
 
 
-def test_root_falls_back_to_307_app_when_the_export_is_missing(client, monkeypatch, tmp_path):
-    """Documented fallback: no `pnpm build` → `/` still lands somewhere useful."""
+def test_root_returns_503_when_the_export_is_missing(client, monkeypatch, tmp_path):
+    """No `pnpm build` → a clear 503. It must NOT redirect to `/app/`, which
+    now redirects back to `/` (that would be an infinite loop)."""
     import src.helmsman.api as api_module
 
     monkeypatch.setattr(api_module, "LANDING_HTML", tmp_path / "not-built" / "index.html")
     response = client.get("/", follow_redirects=False)
-    assert response.status_code == 307
-    assert response.headers["location"] == "/app/"
+    assert response.status_code == 503
+    assert "frontend not built" in response.text
+    assert "location" not in response.headers
