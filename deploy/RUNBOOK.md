@@ -9,7 +9,7 @@ GitHub Actions (keyless, Workload Identity Federation)
   test (postgres:17) ─▶ build image ─▶ Artifact Registry us-central1/helmsman
      ─▶ Cloud Run Job helmsman-migrate (alembic upgrade head)
      ─▶ Cloud Run service helmsman: new revision --no-traffic (tag candidate)
-     ─▶ health check ─▶ shift 100% ─▶ health check ─▶ (any failure => restore previous revision)
+     ─▶ health check ─▶ route traffic to LATEST ─▶ health check ─▶ (any failure => restore previous revision)
 
 Browser ─HTTPS─▶ Cloud Run service helmsman (project ai-agent-boilerplate0, us-central1, 0-3 instances)
                     │  private VPC egress, TLS
@@ -36,7 +36,7 @@ It enables the APIs, creates the Artifact Registry repo, service accounts, the k
 Every push to `main` runs `.github/workflows/deploy-cloudrun.yml`:
 
 1. **test** — `uv run pytest tests/unit tests/integration -q` against a `postgres:17` service container.
-2. **deploy** — keyless auth (service account `helmsman-deployer`), build and push the image tagged with the commit's first 12 characters, run the `helmsman-migrate` job to completion, deploy a **no-traffic** revision tagged `candidate`, health-check it (`/api/health`, up to ~60 s), shift 100% traffic, health-check the service URL.
+2. **deploy** — keyless auth (service account `helmsman-deployer`), build and push the image tagged with the commit's first 12 characters, run the `helmsman-migrate` job to completion, deploy a **no-traffic** revision tagged `candidate`, health-check it (`/api/health`, up to ~60 s), route traffic to `LATEST` (so later `services update` calls take effect immediately), health-check the service URL.
 3. **Rollback guard** — any failure after the previous revision was captured restores it to 100% and removes the `candidate` tag; the run ends red. The workflow never passes `--allow-unauthenticated`; `provision.sh` owns the public invoker binding.
 
 Manual run (any branch or tag ref): `gh workflow run deploy-cloudrun.yml --ref <ref>` or Actions -> "Deploy (Cloud Run)" -> Run workflow. Inputs: `min_instances` (empty = unchanged, `0`, `1`) and `drill_rollback` (health-checks a path that 404s, so the run **must** fail and roll back — use it to prove the guard).
@@ -48,14 +48,17 @@ Migrations must stay backward-compatible with the previous revision for the one-
 ## Workshop mode (avoid cold starts)
 
 ```bash
-bash deploy/cloudrun/workshop-mode.sh on       # min-instances=1 (one warm instance)
-bash deploy/cloudrun/workshop-mode.sh off      # min-instances=0 (scale to zero)
-bash deploy/cloudrun/workshop-mode.sh status   # min-instances=<n> max-instances=<n>
+# one warm instance, at least 10 minutes before the workshop starts
+gcloud run services update helmsman --region us-central1 --project ai-agent-boilerplate0 --min-instances=1
+# back to scale-to-zero afterwards
+gcloud run services update helmsman --region us-central1 --project ai-agent-boilerplate0 --min-instances=0
+# check the live value
+gcloud run services describe helmsman --region us-central1 --project ai-agent-boilerplate0 --format='value(spec.template.metadata.annotations."autoscaling.knative.dev/minScale")'   # empty = 0
 ```
 
-- Run `on` **at least 10 minutes before** a workshop starts, confirm with `status`, and run `off` afterwards.
+- **Why a plain update works:** the service routes traffic to `LATEST` (the deploy workflow ends with `update-traffic --to-latest`), so the revision a `services update` creates serves 100% of traffic as soon as it is ready. A normal deploy never changes `min-instances`; the manual-run input `min_instances` (`""`, `0`, `1`) can set it.
+- **After a manual rollback or the automatic rollback guard**, traffic is pinned to a named revision and a plain `services update` would create a 0%-traffic revision. Re-enable latest-routing first: `gcloud run services update-traffic helmsman --region us-central1 --project ai-agent-boilerplate0 --to-latest` (the next successful deploy does this too).
 - **Rehearse with the actual participant count** (join that many browsers or run the e2e/poll-burst checks) before a large workshop.
-- Traffic is pinned to a named revision, so a plain `gcloud run services update --min-instances` would create a revision serving 0% traffic. The script reuses the serving revision's image, applies the new `min-instances`, and pins 100% traffic to the new revision. Use the script, not a raw `gcloud` update.
 
 **Cold start:** with `min-instances=0` the first request after idle takes a few seconds while an instance boots (CPU boost is on). That is expected, not a bug; workshop mode removes it.
 
@@ -69,7 +72,7 @@ The shared Cloud SQL instance has a limited connection budget. Each instance hol
 gcloud run services logs read helmsman --region us-central1 --project ai-agent-boilerplate0 --limit 100
 gcloud run revisions list --service helmsman --region us-central1 --project ai-agent-boilerplate0
 curl -fsS "$(gcloud run services describe helmsman --region us-central1 --project ai-agent-boilerplate0 --format='value(status.url)')/api/health"
-# manual rollback to a known-good revision
+# manual rollback to a known-good revision (pins traffic; run `update-traffic ... --to-latest` afterwards to resume latest-routing)
 gcloud run services update-traffic helmsman --region us-central1 --project ai-agent-boilerplate0 --to-revisions <REVISION>=100
 ```
 
@@ -129,49 +132,16 @@ Prerequisites: provisioned, the Phase-8 image deployed (it contains `scripts/`),
    gh workflow run deploy-cloudrun.yml --ref main
    ```
 6. **Smoke test** on the real domain: `curl -sI https://workshop0.smalltech.in/ | grep -i '^server: Google Frontend'`; open `/admin` with the admin key and compare workshops with your notes; open an old facilitator link (`/f/<admin_token>`) and an old participant link (`/p/<token>`); create a workshop, join from a second browser, complete a milestone, and check the shown links start with `https://workshop0.smalltech.in/`.
-7. After a stable period, decommission the VM (checklist below).
+7. The VM has since been decommissioned (see "VM decommission" below).
 
 ## Rollback plan
 
-> **Status: the VM rollback is NOT currently serving by name.** The `workshops` DNS record was deleted, and the VM's reverse proxy is still configured for the old hostname, so the VM does not answer for `workshop0.smalltech.in` until the steps below are done. The VM itself is untouched.
-
-Rollback is possible at any point before the VM is decommissioned. **Data warning:** the VM's SQLite database is stale. Anything written to Cloud SQL after the import/cutover is not on the VM and is lost by a rollback unless you export it first (for example, run a Cloud SQL export of database `helmsman` to a bucket, or note the workshops you need to recreate).
-
-1. **GoDaddy:** delete the `CNAME` for host `workshop0`, then add `A` · Host `workshop0` · Points to `35.200.241.145` · TTL `600`.
-2. **On the VM** (`helmsman-c`, `asia-south1-c`), the reverse proxy gets its certificate for whatever `HELMSMAN_DOMAIN` says, and `HELMSMAN_BASE_URL` is derived from it (`https://${HELMSMAN_DOMAIN}`). Edit `/opt/helmsman/.env` and set:
-
-   ```
-   HELMSMAN_DOMAIN=workshop0.smalltech.in
-   ```
-
-   (it currently holds the old `workshops.smalltech.in`; keep the other values).
-3. **Recreate the stack on the VM** with the compose and proxy config from the tag. The old deploy path is preserved in git, not in the current tree:
-
-   ```bash
-   git show vm-deploy-final:deploy/docker-compose.prod.yml > /opt/helmsman/docker-compose.prod.yml
-   git ls-tree --name-only vm-deploy-final deploy/   # find the reverse-proxy config file the compose file mounts
-   git show vm-deploy-final:deploy/<proxy-config-file> > /opt/helmsman/<proxy-config-file>
-   cd /opt/helmsman && docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate
-   ```
-
-   Compare file locations with `git show vm-deploy-final:deploy/RUNBOOK.md` (the VM layout section) before running. The proxy then obtains a certificate for `workshop0.smalltech.in`; this needs the A record from step 1 to have propagated, and takes a few minutes.
-4. Verify: `curl -fsS https://workshop0.smalltech.in/api/health`, and that the response is no longer from Google (`curl -sI ... | grep -i '^server:'` should not show `Google Frontend`).
-
-For a bad application release (as opposed to the cutover), use the pipeline's automatic rollback or the manual `update-traffic` command above.
+The VM was retired on 2026-10-29 (see below), so there is no VM fallback any more. For a bad application release use the pipeline's automatic rollback or the manual `update-traffic` command in "Operations". For data, use the Cloud SQL export/restore above. A final consistent copy of the old VM's SQLite database (taken before deletion, integrity-checked, row counts and sha256 verified) is kept in the operator's local backups outside this repository; `deploy/cloudrun/import-data.sh --sqlite PATH` can load such a file. The old VM deploy path is recoverable from git tag `vm-deploy-final`.
 
 ## Naming note
 
 The Cloud Run resources (service, jobs, database, service accounts, secrets) keep the name `helmsman`. Cloud Run services cannot be renamed in place, and nothing user-visible depends on the name: users only see `workshop0.smalltech.in`.
 
-## VM decommission checklist (user-owned; not automated)
+## VM decommission (done 2026-10-29)
 
-Only after a stable period on Cloud Run:
-
-- [ ] Confirm `https://workshop0.smalltech.in/` has served from Cloud Run for the agreed period and the admin list matches the import.
-- [ ] Take a final copy of the VM's SQLite database (`/srv/helmsman/data/helmsman.db`) and keep it somewhere safe.
-- [ ] Snapshot the VM's disk (`helmsman-c`, zone `asia-south1-c`).
-- [ ] Stop the VM and watch for a few days for anything still depending on it.
-- [ ] Delete the VM `helmsman-c`.
-- [ ] Release the static IP `35.200.241.145` (it is no longer the rollback target once released).
-- [ ] Remove any now-unused VM firewall rules and old GitHub secrets from the VM deploy.
-- [ ] Delete the disk snapshot when you no longer need the safety net.
+The old GCE VM `helmsman-c` (asia-south1-c), its boot disk and the static IP `helmsman-ip` (35.200.241.145) were deleted after a verified backup of its SQLite database, and the `DEPLOY_HOST`, `DEPLOY_USER` and `DEPLOY_SSH_KEY` GitHub secrets were removed. Nothing in the repository depends on them. `deploy/cloudrun/import-data.sh --pull-from-vm` is therefore obsolete (it needs the VM); use `--sqlite PATH`.

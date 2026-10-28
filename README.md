@@ -105,13 +105,11 @@ Production is Cloud Run + Cloud SQL (project `ai-agent-boilerplate0`, region `us
 bash deploy/cloudrun/provision.sh
 ```
 
-Workshop mode keeps one instance warm (no cold start) — turn it on before a workshop and off after:
+Workshop mode keeps one instance warm (no cold start). Traffic always follows the latest revision, so a plain update is enough:
 
 ```bash
-# from the repo root
-bash deploy/cloudrun/workshop-mode.sh on
-bash deploy/cloudrun/workshop-mode.sh off
-bash deploy/cloudrun/workshop-mode.sh status    # prints min-instances=<n> max-instances=<n>
+gcloud run services update helmsman --region us-central1 --project ai-agent-boilerplate0 --min-instances=1   # before the workshop
+gcloud run services update helmsman --region us-central1 --project ai-agent-boilerplate0 --min-instances=0   # after
 ```
 
 ## Environment variables
