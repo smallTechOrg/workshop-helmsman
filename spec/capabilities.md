@@ -1,4 +1,4 @@
-# Capabilities — Workshop Helmsman (v0.2)
+# Capabilities — Workshop0 (v0.2)
 
 Four core capabilities (C1–C4) carry the product; C5–C7 open it to the public in Phase 6; everything else is deferred to a named phase (§Deferred). API shapes live in [api.md](api.md); schema in [data-model.md](data-model.md); phase plan in [roadmap.md](roadmap.md). This file also carries the UI specification (pages, components, states, stub placements) — there is no separate ui.md.
 
@@ -16,7 +16,7 @@ Four core capabilities (C1–C4) carry the product; C5–C7 open it to the publi
 Facilitators enter once with the instance access key, then create and reach workshops via token links.
 
 **Pages:**
-- **Admin Home — `/app/`**: first visit shows a centered access-key card (one password field, "Enter"; wrong key → inline "That key doesn't match this server's `HELMSMAN_ADMIN_KEY`"). Valid key (checked via `GET /api/admin/workshops`) is kept in `localStorage` and sent as `X-Admin-Key`. Then: workshop list grouped **Live / Upcoming / Ended** (Phase 1: everything is Live; Upcoming/Ended groups render as labelled stubs), each card showing name, participant count, open-help count, created date, buttons **Open dashboard** and **Copy join link**. Empty state: "No workshops yet — create your first." Header button **New workshop**. Stub surfaces on this page: **Template library** nav item (StubBadge, Phase 3).
+- **Admin Home — `/app/`**: first visit shows a centered access-key card (one password field, "Enter"; wrong key → inline "That key doesn't match this server's `WORKSHOP0_ADMIN_KEY`"). Valid key (checked via `GET /api/admin/workshops`) is kept in `localStorage` and sent as `X-Admin-Key`. Then: workshop list grouped **Live / Upcoming / Ended** (Phase 1: everything is Live; Upcoming/Ended groups render as labelled stubs), each card showing name, participant count, open-help count, created date, buttons **Open dashboard** and **Copy join link**. Empty state: "No workshops yet — create your first." Header button **New workshop**. Stub surfaces on this page: **Template library** nav item (StubBadge, Phase 3).
 - **Create workshop** (route `/app/` modal or section): name, description (markdown textarea), and a milestone builder — ordered rows of *title + markdown content editor + minutes*, add/remove/move up-down, live markdown preview per milestone (tabs Write/Preview). A **template picker** renders as a labelled stub (Phase 3). Submit → success screen presenting the two links prominently with copy buttons and a plain-language warning: *"The facilitator link is the only key to this dashboard — save it now."*
 
 **Behavior:** `POST /api/admin/workshops`; workshop is `live` immediately; audit row written. Success criteria: create → dashboard reachable via returned `facilitator_url`; join link works; refresh of Admin Home lists the workshop with live counts.
@@ -31,7 +31,7 @@ Join with a name; never lose your place.
 - **Join — `/app/join/?s=<slug>`** (pretty link `/j/<slug>` on the door): workshop name + description (markdown), milestone count, participant count ("143 people are in"), one **name field** + **Join** button. Instant validation (1–80 chars, trimmed). If `GET /api/join/{slug}` returns `me` (cookie auto-resume), skip the form: "Welcome back, Priya" → auto-forward to the tracker. Errors: unknown slug → friendly "This workshop link isn't valid — check with your facilitator." Archived → "This workshop has ended" with a **Browse archive** link (read-only tracker).
 - After join: the tracker shows a dismissible one-time callout: *"This page's link is yours — it works on any device. Save it."* with a copy button for `participant_url`.
 
-**Identity mechanics (architecture.md §Auth):** cookie `helmsman_p_{workshop_id}` (HttpOnly, 30 d) for same-browser auto-resume; the personal link `/p/<token>` is the cross-device credential; the facilitator dashboard's participant table shows a **copy personal link** button per row — the lost-link recovery path ("what's your name? → here's your link"). Reconnect/restart restores exact state on the next poll because all state is in the DB.
+**Identity mechanics (architecture.md §Auth):** cookie `workshop0_p_{workshop_id}` (HttpOnly, 30 d) for same-browser auto-resume; the personal link `/p/<token>` is the cross-device credential; the facilitator dashboard's participant table shows a **copy personal link** button per row — the lost-link recovery path ("what's your name? → here's your link"). Reconnect/restart restores exact state on the next poll because all state is in the DB.
 
 **Success criteria:** join in <10 s from link tap; browser restart auto-resumes; the personal link opens the identical state on a second device; a facilitator can recover any participant's link in two clicks.
 
@@ -76,7 +76,7 @@ A participant raises a hand without disrupting the room; help arrives in-page.
 
 ## C5 — Public landing page *(Phase 6)*
 
-The instance's front door for a stranger who has never heard of Workshop Helmsman.
+The instance's front door for a stranger who has never heard of Workshop0.
 
 **Page — `/` (also reachable at `/app/`; serving mechanism in [architecture.md](architecture.md) §Serving the landing page at `/`):** a real marketing page, not a redirect. It is the first thing a stranger sees, so it carries the same design-system bar as every other surface — same tokens, same primitives, responsive from 360px up, WCAG AA, keyboard-reachable, no layout shift.
 
