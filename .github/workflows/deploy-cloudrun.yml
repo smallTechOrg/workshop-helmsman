@@ -11,7 +11,7 @@ name: Deploy (Cloud Run)
 # Pushes to main deploy automatically; any other branch can be deployed by hand
 # with workflow_dispatch (gh workflow run deploy-cloudrun.yml --ref <branch>).
 #
-# Optional repository variable HELMSMAN_BASE_URL (e.g. https://workshops.smalltech.in)
+# Optional repository variable HELMSMAN_BASE_URL (e.g. https://workshop0.smalltech.in)
 # is passed to the service so share links use the pretty domain. When unset the
 # service derives the base URL from the request (proxy headers).
 

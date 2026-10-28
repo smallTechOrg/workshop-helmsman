@@ -302,7 +302,7 @@ GitHub Actions ──WIF (no keys)──▶ helmsman-deployer SA
    build image ─▶ Artifact Registry us-central1/helmsman ─▶ Cloud Run Job helmsman-migrate (alembic upgrade head)
         └─▶ Cloud Run service helmsman: new revision --no-traffic (tag candidate) ─▶ health check ─▶ shift 100% ─▶ health check ─▶ (fail ⇒ roll back)
 
-Browser ─HTTPS─▶ Cloud Run (helmsman, 0–3 instances, run.app URL; workshops.smalltech.in via Cloud Run domain mapping, Phase 8)
+Browser ─HTTPS─▶ Cloud Run (helmsman, 0–3 instances, run.app URL; workshop0.smalltech.in via Cloud Run domain mapping, Phase 8)
                    └─ Direct VPC egress (network default, subnet default, private-ranges-only) ─TLS─▶ Cloud SQL ai-agent-db 10.110.112.7:5432 / db helmsman
 Secrets: Secret Manager helmsman-* ─(--set-secrets, runtime SA helmsman-run)─▶ env
 ```
@@ -332,9 +332,9 @@ Secrets: Secret Manager helmsman-* ─(--set-secrets, runtime SA helmsman-run)�
 
 **Phase status.** Phase 7 (Cloud Run + Cloud SQL) is delivered and merged in its PR; Phase 8 (cutover) retires the VM path. **Snapshot memo:** dropped in Phase 7; revisit (shared, not per-process) only if load testing shows snapshot build is a bottleneck; key was `(workshop_id, state_version)`. The poll `leaderboard` is capped to the top 15 plus the caller's own row.
 
-**Domain.** `workshops.smalltech.in` is mapped to the service in Phase 8 (Cloud Run domain mapping, supported in `us-central1`; Google-managed certificate). Until then the `*.run.app` URL is the product URL. DNS is at GoDaddy and is a manual human step (exact records in the Phase 8 section of the roadmap). At cutover the operator sets the GitHub repository variable `HELMSMAN_BASE_URL=https://workshops.smalltech.in`, which the deploy workflow passes to the service, so share links use the pretty domain even if opened via `run.app`.
+**Domain.** `workshop0.smalltech.in` is mapped to the service in Phase 8 (Cloud Run domain mapping, supported in `us-central1`; Google-managed certificate). Until then the `*.run.app` URL is the product URL. DNS is at GoDaddy and is a manual human step (exact records in the Phase 8 section of the roadmap). At cutover the operator sets the GitHub repository variable `HELMSMAN_BASE_URL=https://workshop0.smalltech.in`, which the deploy workflow passes to the service, so share links use the pretty domain even if opened via `run.app`.
 
-**Rollback of the whole migration.** The GCE VM (`helmsman-c`, `asia-south1-c`, static IP `35.200.241.145`) is never modified by any phase; it keeps its own SQLite volume. Reverting production = deleting the `CNAME` and pointing the GoDaddy record back at the VM (`A workshops 35.200.241.145`, TTL 600); the VM stays untouched until the user retires it. Data written to Cloud Run after cutover is not carried back (documented in RUNBOOK).
+**Rollback of the whole migration.** The GCE VM (`helmsman-c`, `asia-south1-c`, static IP `35.200.241.145`) is never modified by any phase; it keeps its own SQLite volume. Reverting production (**not currently serving by name**) = in GoDaddy deleting `CNAME workshop0` and adding `A workshop0 -> 35.200.241.145` (TTL 600), **and** on the VM setting `HELMSMAN_DOMAIN=workshop0.smalltech.in` in `/opt/helmsman/.env` (it holds the old `workshops` name; `HELMSMAN_BASE_URL` derives from it) and recreating the stack from `vm-deploy-final:deploy/docker-compose.prod.yml` so the reverse proxy obtains a certificate for the new name. The VM stays untouched until the user retires it. Data written to Cloud SQL after cutover is not on the VM (its SQLite is stale) and is lost unless exported first (documented in RUNBOOK). Cloud Run resources keep the name `helmsman`.
 
 ## Key architectural decisions (summary)
 

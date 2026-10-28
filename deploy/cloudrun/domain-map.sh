@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Map workshops.smalltech.in to the Cloud Run service `helmsman` (Cloud Run domain mapping).
+# Map workshop0.smalltech.in to the Cloud Run service `helmsman` (Cloud Run domain mapping).
 #
 #   bash deploy/cloudrun/domain-map.sh [--wait]
 #
@@ -8,7 +8,7 @@
 # 2. Creates the mapping if absent (EXISTS otherwise).
 # 3. Prints the DNS records exactly as returned by `domain-mappings describe` (resourceRecords).
 # 4. --wait polls every 10 s (90 min cap) until Ready=True and CertificateProvisioned=True,
-#    then runs `curl -fsS https://workshops.smalltech.in/api/health`.
+#    then runs `curl -fsS https://workshop0.smalltech.in/api/health`.
 # Needs the gcloud `beta` component (`gcloud components install beta`). No secrets involved.
 set -euo pipefail
 
@@ -16,7 +16,7 @@ PROJECT_ID="${PROJECT_ID:-ai-agent-boilerplate0}"
 REGION="${REGION:-us-central1}"
 SERVICE="${SERVICE:-helmsman}"
 BASE_DOMAIN="smalltech.in"
-DOMAIN="workshops.smalltech.in"
+DOMAIN="workshop0.smalltech.in"
 POLL_SECONDS=10
 POLL_CAP_SECONDS=$((90 * 60))
 G=(--project "$PROJECT_ID")
@@ -71,7 +71,7 @@ print_records() {
   gcloud beta run domain-mappings describe "${M[@]}" --flatten='status.resourceRecords[]' \
     --format='table[no-heading](status.resourceRecords.type,status.resourceRecords.name,status.resourceRecords.rrdata)' \
     | sed 's/^/  /'
-  echo "  (if the host currently has an A or AAAA record for 'workshops', delete it first: a CNAME cannot coexist with them)"
+  echo "  (if the host currently has an A or AAAA record for 'workshop0', delete it first: a CNAME cannot coexist with them)"
 }
 print_records
 

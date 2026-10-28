@@ -16,7 +16,7 @@ Browser ─HTTPS─▶ Cloud Run service helmsman (project ai-agent-boilerplate0
                     ▼
                  Cloud SQL PostgreSQL instance ai-agent-db (shared) ─ database helmsman, user helmsman_app
 Secrets (Secret Manager): helmsman-database-url, helmsman-openrouter-api-key, helmsman-admin-key
-Public URL: https://workshops.smalltech.in (domain mapping -> ghs.googlehosted.com) and the *.run.app URL
+Public URL: https://workshop0.smalltech.in (domain mapping -> ghs.googlehosted.com) and the *.run.app URL
 ```
 
 One uvicorn process per container serves `/api/*` and the built frontend. Instances are stateless; the database is the only shared state.
@@ -41,7 +41,7 @@ Every push to `main` runs `.github/workflows/deploy-cloudrun.yml`:
 
 Manual run (any branch or tag ref): `gh workflow run deploy-cloudrun.yml --ref <ref>` or Actions -> "Deploy (Cloud Run)" -> Run workflow. Inputs: `min_instances` (empty = unchanged, `0`, `1`) and `drill_rollback` (health-checks a path that 404s, so the run **must** fail and roll back — use it to prove the guard).
 
-Repository variable `HELMSMAN_BASE_URL` (set at cutover, e.g. `https://workshops.smalltech.in`) is passed to the service **only when non-empty**; share links then use that domain. Unset, links derive from the request. Set it with `gh variable set HELMSMAN_BASE_URL --body https://workshops.smalltech.in`.
+Repository variable `HELMSMAN_BASE_URL` (set at cutover, e.g. `https://workshop0.smalltech.in`) is passed to the service **only when non-empty**; share links then use that domain. Unset, links derive from the request. Set it with `gh variable set HELMSMAN_BASE_URL --body https://workshop0.smalltech.in`.
 
 Migrations must stay backward-compatible with the previous revision for the one-deploy overlap window (additive first, destructive in a later release).
 
@@ -95,7 +95,7 @@ The Cloud SQL service account needs read access to the bucket for imports and wr
 
 Prerequisites: provisioned, the Phase-8 image deployed (it contains `scripts/`), `gcloud` and `gh` authenticated, `smalltech.in` verified with Google (`domain-map.sh` tells you if not).
 
-1. **Day before:** in GoDaddy lower the TTL of the existing `workshops` record to 600 seconds. Pick a window with **no live workshop**: the DNS flip and certificate issuance cause a short HTTPS gap (up to ~30-60 minutes), and anything written on the VM after the final import is not carried over. Note the names, statuses and participant counts of the VM's workshops for comparison.
+1. **Day before:** the production host is `workshop0.smalltech.in` (host label `workshop0`). Pick a window with **no live workshop**: the DNS flip and certificate issuance cause a short HTTPS gap (up to ~30-60 minutes), and anything written on the VM after the final import is not carried over. Note the names, statuses and participant counts of the VM's workshops for comparison.
 2. **Import the VM data** (read-only against the VM; wipes the throw-away Cloud Run data):
 
    ```bash
@@ -111,9 +111,8 @@ Prerequisites: provisioned, the Phase-8 image deployed (it contains `scripts/`),
 
    It prints the DNS records to set. If it reports the domain is unverified, add the TXT record below first and re-run it.
 4. **GoDaddy DNS for `smalltech.in` (manual).** In the DNS records for `smalltech.in`:
-   - **Delete** the existing `A` record, host `workshops`, value `35.200.241.145`.
-   - **Delete** any `AAAA` record for host `workshops` (a CNAME cannot coexist with them).
-   - **Add** `CNAME` · Host `workshops` · Points to `ghs.googlehosted.com` · TTL `600`.
+   - **Add** `CNAME` · Host `workshop0` · Points to `ghs.googlehosted.com` · TTL `600`. (Done: the user created this record directly; the old `workshops` A record `35.200.241.145` is gone and `workshops.smalltech.in` no longer resolves.)
+   - If any `A` or `AAAA` record exists for host `workshop0`, delete it (a CNAME cannot coexist with them).
    - Only if `domain-map.sh` reports the domain as unverified: add the `TXT` record it prints at host `@` (`google-site-verification=...`).
 
    If `gcloud beta run domain-mappings describe` shows different `resourceRecords`, **those win**: use the values it prints.
@@ -126,25 +125,49 @@ Prerequisites: provisioned, the Phase-8 image deployed (it contains `scripts/`),
    Then set share links to the pretty domain and redeploy (merge the PR first):
 
    ```bash
-   gh variable set HELMSMAN_BASE_URL --body https://workshops.smalltech.in
+   gh variable set HELMSMAN_BASE_URL --body https://workshop0.smalltech.in
    gh workflow run deploy-cloudrun.yml --ref main
    ```
-6. **Smoke test** on the real domain: `curl -sI https://workshops.smalltech.in/ | grep -i '^server: Google Frontend'`; open `/admin` with the admin key and compare workshops with your notes; open an old facilitator link (`/f/<admin_token>`) and an old participant link (`/p/<token>`); create a workshop, join from a second browser, complete a milestone, and check the shown links start with `https://workshops.smalltech.in/`.
+6. **Smoke test** on the real domain: `curl -sI https://workshop0.smalltech.in/ | grep -i '^server: Google Frontend'`; open `/admin` with the admin key and compare workshops with your notes; open an old facilitator link (`/f/<admin_token>`) and an old participant link (`/p/<token>`); create a workshop, join from a second browser, complete a milestone, and check the shown links start with `https://workshop0.smalltech.in/`.
 7. After a stable period, decommission the VM (checklist below).
 
 ## Rollback plan
 
-At any point before the VM is decommissioned: in GoDaddy delete the `CNAME` for `workshops` and **point the GoDaddy record back to `A workshops 35.200.241.145` TTL 600**. The VM stays untouched until the user retires it, and its SQLite volume was never modified by the cutover. Data written on Cloud Run after the import is not carried back to the VM.
+> **Status: the VM rollback is NOT currently serving by name.** The `workshops` DNS record was deleted, and the VM's reverse proxy is still configured for the old hostname, so the VM does not answer for `workshop0.smalltech.in` until the steps below are done. The VM itself is untouched.
 
-To redeploy the old VM deploy path from source, it is preserved in git: `git show vm-deploy-final:deploy/docker-compose.prod.yml` (and the other files of that tag). It is not part of the current tree.
+Rollback is possible at any point before the VM is decommissioned. **Data warning:** the VM's SQLite database is stale. Anything written to Cloud SQL after the import/cutover is not on the VM and is lost by a rollback unless you export it first (for example, run a Cloud SQL export of database `helmsman` to a bucket, or note the workshops you need to recreate).
+
+1. **GoDaddy:** delete the `CNAME` for host `workshop0`, then add `A` · Host `workshop0` · Points to `35.200.241.145` · TTL `600`.
+2. **On the VM** (`helmsman-c`, `asia-south1-c`), the reverse proxy gets its certificate for whatever `HELMSMAN_DOMAIN` says, and `HELMSMAN_BASE_URL` is derived from it (`https://${HELMSMAN_DOMAIN}`). Edit `/opt/helmsman/.env` and set:
+
+   ```
+   HELMSMAN_DOMAIN=workshop0.smalltech.in
+   ```
+
+   (it currently holds the old `workshops.smalltech.in`; keep the other values).
+3. **Recreate the stack on the VM** with the compose and proxy config from the tag. The old deploy path is preserved in git, not in the current tree:
+
+   ```bash
+   git show vm-deploy-final:deploy/docker-compose.prod.yml > /opt/helmsman/docker-compose.prod.yml
+   git ls-tree --name-only vm-deploy-final deploy/   # find the reverse-proxy config file the compose file mounts
+   git show vm-deploy-final:deploy/<proxy-config-file> > /opt/helmsman/<proxy-config-file>
+   cd /opt/helmsman && docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate
+   ```
+
+   Compare file locations with `git show vm-deploy-final:deploy/RUNBOOK.md` (the VM layout section) before running. The proxy then obtains a certificate for `workshop0.smalltech.in`; this needs the A record from step 1 to have propagated, and takes a few minutes.
+4. Verify: `curl -fsS https://workshop0.smalltech.in/api/health`, and that the response is no longer from Google (`curl -sI ... | grep -i '^server:'` should not show `Google Frontend`).
 
 For a bad application release (as opposed to the cutover), use the pipeline's automatic rollback or the manual `update-traffic` command above.
+
+## Naming note
+
+The Cloud Run resources (service, jobs, database, service accounts, secrets) keep the name `helmsman`. Cloud Run services cannot be renamed in place, and nothing user-visible depends on the name: users only see `workshop0.smalltech.in`.
 
 ## VM decommission checklist (user-owned; not automated)
 
 Only after a stable period on Cloud Run:
 
-- [ ] Confirm `https://workshops.smalltech.in/` has served from Cloud Run for the agreed period and the admin list matches the import.
+- [ ] Confirm `https://workshop0.smalltech.in/` has served from Cloud Run for the agreed period and the admin list matches the import.
 - [ ] Take a final copy of the VM's SQLite database (`/srv/helmsman/data/helmsman.db`) and keep it somewhere safe.
 - [ ] Snapshot the VM's disk (`helmsman-c`, zone `asia-south1-c`).
 - [ ] Stop the VM and watch for a few days for anything still depending on it.

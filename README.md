@@ -97,7 +97,7 @@ App-only, SQLite in a named volume, migrations applied on boot; open http://loca
 
 ## Deploying to Cloud Run
 
-Production is Cloud Run + Cloud SQL (project `ai-agent-boilerplate0`, region `us-central1`), served at https://workshops.smalltech.in/ after the Phase 8 cutover. Pushes to `main` run `.github/workflows/deploy-cloudrun.yml`: PostgreSQL tests, image build, migrate job, no-traffic candidate revision, health check, traffic shift, health check, automatic rollback on failure. Authentication is keyless (Workload Identity Federation). Any branch can be deployed by hand with `gh workflow run deploy-cloudrun.yml --ref <branch>`. The Docker Compose file is for local development only. Full detail (topology, cutover from the old VM, rollback, backups): [deploy/RUNBOOK.md](deploy/RUNBOOK.md).
+Production is Cloud Run + Cloud SQL (project `ai-agent-boilerplate0`, region `us-central1`), served at https://workshop0.smalltech.in/ after the Phase 8 cutover. Pushes to `main` run `.github/workflows/deploy-cloudrun.yml`: PostgreSQL tests, image build, migrate job, no-traffic candidate revision, health check, traffic shift, health check, automatic rollback on failure. Authentication is keyless (Workload Identity Federation). Any branch can be deployed by hand with `gh workflow run deploy-cloudrun.yml --ref <branch>`. The Docker Compose file is for local development only. Full detail (topology, cutover from the old VM, rollback, backups): [deploy/RUNBOOK.md](deploy/RUNBOOK.md).
 
 ```bash
 # from the repo root — one-time, idempotent provisioning (operator must be gcloud-authenticated;
@@ -133,4 +133,4 @@ bash deploy/cloudrun/workshop-mode.sh status    # prints min-instances=<n> max-i
 
 ## Status
 
-The product (public landing page, keyless workshop creation, live dashboard, help desk, admin console) is built; production runs on Cloud Run + Cloud SQL (PostgreSQL) (Phase 7), and Phase 8 moves the data and `workshops.smalltech.in` over from the old VM. The spec in `spec/` is the source of truth.
+The product (public landing page, keyless workshop creation, live dashboard, help desk, admin console) is built; production runs on Cloud Run + Cloud SQL (PostgreSQL) (Phase 7), and Phase 8 moves the data and `workshop0.smalltech.in` over from the old VM. The spec in `spec/` is the source of truth.
