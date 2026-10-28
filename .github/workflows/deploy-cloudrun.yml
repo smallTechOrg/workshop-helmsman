@@ -1,0 +1,272 @@
+name: Deploy (Cloud Run)
+
+# Keyless (Workload Identity Federation) deploy of Workshop Helmsman to Cloud Run.
+#   test   -> unit + integration suite against a postgres:17 service container
+#   deploy -> build + push image, run the helmsman-migrate job, deploy a
+#             no-traffic candidate revision, health-check it, shift traffic,
+#             health-check again; on any failure restore the previous revision.
+# No GCP keys are stored anywhere; the only secrets are the optional
+# OPENROUTER_API_KEY used by the guarded real-key tests.
+#
+# The feature/cloud-run-v0.1 push trigger is Phase-7-only (so the real deploy can
+# be gated before merge); Phase 8 removes it.
+#
+# Optional repository variable HELMSMAN_BASE_URL (e.g. https://workshops.smalltech.in)
+# is passed to the service so share links use the pretty domain. When unset the
+# service derives the base URL from the request (proxy headers).
+
+on:
+  push:
+    branches: [main, feature/cloud-run-v0.1]
+  workflow_dispatch:
+    inputs:
+      min_instances:
+        description: "Set the service min-instances (empty = leave unchanged)"
+        type: choice
+        options: ["", "0", "1"]
+        default: ""
+      drill_rollback:
+        description: "Drill: health-check a path that 404s so the rollback guard fires"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-cloudrun
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: ai-agent-boilerplate0
+  REGION: us-central1
+  SERVICE: helmsman
+
+jobs:
+  test:
+    name: Test (PostgreSQL 17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: helmsman_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/helmsman_test
+      HELMSMAN_ADMIN_KEY: ci-admin-key-0123456789
+      # Real-key tests are guarded: they skip when this secret is absent.
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - name: Unit + integration tests
+        run: uv run pytest tests/unit tests/integration -q
+
+  deploy:
+    name: Build, migrate, deploy
+    runs-on: ubuntu-latest
+    needs: test
+    env:
+      REGISTRY: us-central1-docker.pkg.dev
+      RUNTIME_SA: helmsman-run@ai-agent-boilerplate0.iam.gserviceaccount.com
+      MIN_INSTANCES_INPUT: ${{ inputs.min_instances }}
+      DRILL_ROLLBACK: ${{ inputs.drill_rollback }}
+      BASE_URL_VAR: ${{ vars.HELMSMAN_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: vars
+        name: Compute image reference
+        run: |
+          set -euo pipefail
+          SHA12="${GITHUB_SHA::12}"
+          IMAGE="${REGISTRY}/${PROJECT_ID}/helmsman/helmsman"
+          {
+            echo "SHA12=${SHA12}"
+            echo "IMAGE=${IMAGE}"
+            echo "IMAGE_REF=${IMAGE}:${SHA12}"
+          } >> "$GITHUB_ENV"
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/870371939888/locations/global/workloadIdentityPools/github/providers/helmsman-github
+          service_account: helmsman-deployer@ai-agent-boilerplate0.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build + push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ env.SHA12 }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Capture previous serving revision
+        run: |
+          set -euo pipefail
+          EXISTS="$(gcloud run services list --region "$REGION" \
+            --filter="metadata.name=${SERVICE}" --format='value(metadata.name)')"
+          if [ -z "$EXISTS" ]; then
+            echo "No existing service: safety net only (provision.sh pre-creates the placeholder service, so this is not expected)."
+            echo "FIRST_DEPLOY=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "FIRST_DEPLOY=false" >> "$GITHUB_ENV"
+          PREV="$(gcloud run services describe "$SERVICE" --region "$REGION" --format=json \
+            | jq -r '[.status.traffic[] | select((.percent // 0) > 0 and .revisionName)][0].revisionName // empty')"
+          if [ -z "$PREV" ]; then
+            PREV="$(gcloud run services describe "$SERVICE" --region "$REGION" \
+              --format='value(status.latestReadyRevisionName)')"
+          fi
+          echo "Previous revision: ${PREV:-<none>}"
+          echo "PREV=${PREV}" >> "$GITHUB_ENV"
+
+      - name: Create or update the migrate job
+        run: |
+          set -euo pipefail
+          gcloud run jobs deploy helmsman-migrate \
+            --region "$REGION" \
+            --image "$IMAGE_REF" \
+            --service-account "$RUNTIME_SA" \
+            --command entrypoint.sh --args migrate \
+            --max-retries 0 --task-timeout 600 \
+            --cpu 1 --memory 512Mi \
+            --network=default --subnet=default --vpc-egress=private-ranges-only \
+            --set-env-vars HELMSMAN_MIGRATE_ON_BOOT=0 \
+            --set-secrets "DATABASE_URL=helmsman-database-url:latest,OPENROUTER_API_KEY=helmsman-openrouter-api-key:latest,HELMSMAN_ADMIN_KEY=helmsman-admin-key:latest"
+
+      - name: Run migrations (before any traffic reaches the new revision)
+        run: gcloud run jobs execute helmsman-migrate --region "$REGION" --wait
+
+      - name: Deploy the new revision
+        run: |
+          set -euo pipefail
+          SUFFIX="sha-${SHA12}"
+          # A re-run of the same commit (e.g. a rollback drill) must not collide.
+          if [ "$FIRST_DEPLOY" != "true" ] && \
+             gcloud run revisions list --service "$SERVICE" --region "$REGION" \
+              --format='value(metadata.name)' | grep -qx "${SERVICE}-${SUFFIX}"; then
+            SUFFIX="${SUFFIX}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          fi
+          echo "NEW_REVISION=${SERVICE}-${SUFFIX}" >> "$GITHUB_ENV"
+
+          ENVVARS="HELMSMAN_MIGRATE_ON_BOOT=0"
+          if [ -n "${BASE_URL_VAR:-}" ]; then
+            ENVVARS="${ENVVARS}@HELMSMAN_BASE_URL=${BASE_URL_VAR}"
+          fi
+
+          ARGS=(
+            --region "$REGION"
+            --image "$IMAGE_REF"
+            --service-account "$RUNTIME_SA"
+            --port 8080
+            --cpu 1 --memory 512Mi --concurrency 40 --timeout 60
+            --max-instances 3
+            --cpu-boost --no-cpu-throttling
+            --network=default --subnet=default --vpc-egress=private-ranges-only
+            --set-env-vars "^@^${ENVVARS}"
+            --set-secrets "DATABASE_URL=helmsman-database-url:latest,OPENROUTER_API_KEY=helmsman-openrouter-api-key:latest,HELMSMAN_ADMIN_KEY=helmsman-admin-key:latest"
+            --revision-suffix "$SUFFIX"
+          )
+          # A normal deploy never changes min-instances (omitting preserves the live value).
+          if [ -n "${MIN_INSTANCES_INPUT:-}" ]; then
+            ARGS+=(--min-instances "$MIN_INSTANCES_INPUT")
+          fi
+
+          if [ "$FIRST_DEPLOY" = "true" ]; then
+            [ -n "${MIN_INSTANCES_INPUT:-}" ] || ARGS+=(--min-instances 0)
+            gcloud run deploy "$SERVICE" "${ARGS[@]}"
+          else
+            gcloud run deploy "$SERVICE" "${ARGS[@]}" --no-traffic --tag candidate
+          fi
+
+      - name: Health-check the candidate
+        run: |
+          set -euo pipefail
+          SVC_JSON="$(gcloud run services describe "$SERVICE" --region "$REGION" --format=json)"
+          SERVICE_URL="$(jq -r '.status.url' <<<"$SVC_JSON")"
+          echo "SERVICE_URL=${SERVICE_URL}" >> "$GITHUB_ENV"
+          if [ "$FIRST_DEPLOY" = "true" ]; then
+            CHECK_URL="$SERVICE_URL"   # first deploy already serves 100%
+          else
+            CHECK_URL="$(jq -r '[.status.traffic[] | select(.tag=="candidate")][0].url // empty' <<<"$SVC_JSON")"
+            [ -n "$CHECK_URL" ] || CHECK_URL="${SERVICE_URL/https:\/\//https://candidate---}"
+          fi
+          HEALTH_PATH="/api/health"
+          if [ "$DRILL_ROLLBACK" = "true" ]; then
+            HEALTH_PATH="/api/health-drill-404"
+            echo "DRILL: probing ${HEALTH_PATH}; this run is expected to fail and roll back."
+          fi
+          for i in $(seq 1 30); do
+            BODY="$(curl -fsS --max-time 5 "${CHECK_URL}${HEALTH_PATH}" 2>/dev/null || true)"
+            if jq -e '(.data // .) | .status == "ok" and .db == "ok"' <<<"$BODY" >/dev/null 2>&1; then
+              echo "Candidate healthy: ${CHECK_URL}${HEALTH_PATH}"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Candidate failed its health check: ${CHECK_URL}${HEALTH_PATH}" >&2
+          exit 1
+
+      - name: Shift traffic to the new revision
+        if: env.FIRST_DEPLOY != 'true'
+        run: |
+          set -euo pipefail
+          gcloud run services update-traffic "$SERVICE" --region "$REGION" \
+            --to-revisions "${NEW_REVISION}=100"
+
+      - name: Health-check the service
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            BODY="$(curl -fsS --max-time 5 "${SERVICE_URL}/api/health" 2>/dev/null || true)"
+            if jq -e '(.data // .) | .status == "ok" and .db == "ok"' <<<"$BODY" >/dev/null 2>&1; then
+              echo "Service healthy: ${SERVICE_URL}/api/health"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Service failed its post-shift health check" >&2
+          exit 1
+
+      - name: Remove the candidate tag
+        if: env.FIRST_DEPLOY != 'true'
+        run: |
+          gcloud run services update-traffic "$SERVICE" --region "$REGION" \
+            --remove-tags candidate
+
+      - name: Roll back to the previous revision
+        if: failure() && env.PREV != ''
+        run: |
+          set -uo pipefail
+          echo "Deploy failed: restoring ${PREV}=100"
+          gcloud run services update-traffic "$SERVICE" --region "$REGION" \
+            --to-revisions "${PREV}=100"
+          gcloud run services update-traffic "$SERVICE" --region "$REGION" \
+            --remove-tags candidate || true

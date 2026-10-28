@@ -1,15 +1,11 @@
-# Workshop Helmsman v0.2 — production compose.
+# Workshop Helmsman — local-dev compose: the app only, SQLite in a named volume.
+# (Production is Cloud Run; see deploy/RUNBOOK.md. The VM's Caddy stack lives in
+# docker-compose.prod.yml and is untouched.)
 #
-#   app    — FastAPI + built frontend, single container, listens on :8001 (internal only).
-#   caddy  — reverse proxy terminating TLS for ${HELMSMAN_DOMAIN} via Let's Encrypt.
-#
-# Data survives restarts and redeploys via named volumes:
-#   helmsman-data  -> the SQLite database (data/helmsman.db)
-#   caddy-data     -> issued TLS certificates (don't lose these — rate limits)
-#
-# Usage (see deploy/RUNBOOK.md for the full VM/DNS/TLS walkthrough):
-#   cp .env.example .env   # then set HELMSMAN_ADMIN_KEY, HELMSMAN_DOMAIN, ACME_EMAIL
-#   docker compose -f deploy/docker-compose.yml up -d --build
+# Usage, from the repo root:
+#   cp .env.example .env      # set HELMSMAN_ADMIN_KEY
+#   docker compose -f deploy/docker-compose.yml up --build
+# then open http://localhost:8001/
 
 services:
   app:
@@ -18,17 +14,15 @@ services:
       dockerfile: deploy/Dockerfile
     image: workshop-helmsman:latest
     restart: unless-stopped
+    # Secrets/config (HELMSMAN_ADMIN_KEY, OPENROUTER_API_KEY, optional
+    # HELMSMAN_BASE_URL ...) come from the repo-root .env.
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       PORT: "8001"
       DATABASE_URL: "sqlite:///data/helmsman.db"
-      # Public https URL so generated share links are correct behind the proxy.
-      HELMSMAN_BASE_URL: "https://${HELMSMAN_DOMAIN:?set HELMSMAN_DOMAIN in .env}"
-      HELMSMAN_LOG_LEVEL: "${HELMSMAN_LOG_LEVEL:-INFO}"
-      HELMSMAN_ADMIN_KEY: "${HELMSMAN_ADMIN_KEY:?set HELMSMAN_ADMIN_KEY in .env}"
-      # Phase 4 AI (optional) — absent means the product runs air-gapped.
-      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
-      HELMSMAN_AI_MODEL: "${HELMSMAN_AI_MODEL:-anthropic/claude-sonnet-4-6}"
-      HELMSMAN_AI_CONFIDENCE: "${HELMSMAN_AI_CONFIDENCE:-0.75}"
+      HELMSMAN_MIGRATE_ON_BOOT: "1"
     volumes:
       - helmsman-data:/srv/helmsman/data
     healthcheck:
@@ -37,26 +31,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-    expose:
-      - "8001"
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    depends_on:
-      - app
     ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      HELMSMAN_DOMAIN: "${HELMSMAN_DOMAIN:?set HELMSMAN_DOMAIN in .env}"
-      ACME_EMAIL: "${ACME_EMAIL:?set ACME_EMAIL in .env}"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
+      - "8001:8001"
 
 volumes:
   helmsman-data:
-  caddy-data:
-  caddy-config:

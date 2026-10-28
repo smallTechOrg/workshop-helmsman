@@ -3,7 +3,8 @@ name: Deploy
 # Build the production image, push it to GitHub Container Registry, then deploy
 # on the GCP VM over SSH by pulling the new image and re-upping compose.
 #
-# Trigger: push to main (i.e. a merged PR), or manual dispatch.
+# LEGACY (VM path). Trigger: manual dispatch only. Pushes to main deploy to
+# Cloud Run via deploy-cloudrun.yml; this workflow is deleted in Phase 8.
 #
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
 #   GHCR_PAT           optional; GITHUB_TOKEN is used by default for GHCR
@@ -13,8 +14,6 @@ name: Deploy
 # The VM holds its own /opt/helmsman/.env (secrets never leave the VM).
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:

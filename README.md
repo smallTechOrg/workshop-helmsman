@@ -8,6 +8,7 @@ Self-hosted workshop assistant for facilitator-led hands-on technical labs: a fa
 
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/)
 - Node.js 22 and [pnpm](https://pnpm.io/)
+- PostgreSQL 17 (tests run against PostgreSQL, never SQLite — see "Run the tests")
 
 ## Setup (once)
 
@@ -22,11 +23,15 @@ pnpm exec playwright install chromium   # only needed to run the e2e suite
 
 ## Database
 
+Local development defaults to SQLite (`data/helmsman.db`); production runs on PostgreSQL (Cloud SQL).
+
 ```bash
 # from the repo root
 uv run alembic upgrade head
 uv run alembic current        # MUST print a revision hash — blank output means no migration was applied
 ```
+
+To run the app against PostgreSQL instead, set `DATABASE_URL=postgresql+psycopg://user:pass@host:5432/db` in `.env`.
 
 ## Build the UI and run
 
@@ -51,22 +56,72 @@ Open **http://localhost:8001/** — the public landing page. From there, **Creat
 
 There are no accounts and no login: a link is the credential. A workshop created from the public flow has the **full** facilitator toolset — it differs from an admin-created one only by its stored creator email and origin flag.
 
-## Tests
+## Run the tests
+
+The suite runs against **PostgreSQL 17** (the production driver). It refuses any database whose name does not end in `_test`.
+
+```bash
+# one-time PostgreSQL setup (macOS, from any directory)
+brew install postgresql@17 && brew services start postgresql@17
+createdb helmsman_test
+```
 
 ```bash
 # from the repo root
+export TEST_DATABASE_URL="postgresql+psycopg://$USER@localhost:5432/helmsman_test"
 uv run pytest tests/unit tests/integration -q
+```
 
-# e2e (requires the server running in another terminal: uv run python -m src)
+If your PostgreSQL listens on another port or needs a password, adjust the URL accordingly (`postgresql+psycopg://user:pass@host:port/helmsman_test`).
+
+```bash
+# e2e — from the repo root; build the UI first, then run the server in one terminal ...
+(cd frontend && pnpm build)
+DATABASE_URL="$TEST_DATABASE_URL" uv run alembic upgrade head
+DATABASE_URL="$TEST_DATABASE_URL" uv run python -m src
+
+# ... and the suite in another (from the repo root)
 pnpm exec playwright test tests/e2e --reporter=line
+```
+
+## Run with Docker (local dev)
+
+```bash
+# from the repo root (needs .env with HELMSMAN_ADMIN_KEY)
+docker compose -f deploy/docker-compose.yml up --build
+```
+
+App-only, SQLite in a named volume, migrations applied on boot; open http://localhost:8001/.
+
+## Deploying to Cloud Run
+
+Production is Cloud Run + Cloud SQL (project `ai-agent-boilerplate0`, region `us-central1`). Pushes to `main` run `.github/workflows/deploy-cloudrun.yml`: PostgreSQL tests, image build, migrate job, no-traffic candidate revision, health check, traffic shift, health check, automatic rollback on failure. Authentication is keyless (Workload Identity Federation). Full detail: [deploy/RUNBOOK.md](deploy/RUNBOOK.md).
+
+```bash
+# from the repo root — one-time, idempotent provisioning (operator must be gcloud-authenticated;
+# HELMSMAN_ADMIN_KEY and OPENROUTER_API_KEY are read from the environment or .env, never echoed)
+bash deploy/cloudrun/provision.sh
+```
+
+Workshop mode keeps one instance warm (no cold start) — turn it on before a workshop and off after:
+
+```bash
+# from the repo root
+bash deploy/cloudrun/workshop-mode.sh on
+bash deploy/cloudrun/workshop-mode.sh off
+bash deploy/cloudrun/workshop-mode.sh status    # prints min-instances=<n> max-instances=<n>
 ```
 
 ## Environment variables
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | no | `sqlite:///data/helmsman.db` | SQLAlchemy URL; PostgreSQL-ready |
-| `PORT` | no | `8001` | HTTP port |
+| `DATABASE_URL` | no | `sqlite:///data/helmsman.db` | SQLAlchemy URL; **PostgreSQL in production** |
+| `HELMSMAN_DB_POOL_SIZE` | no | `3` | PostgreSQL pool size (ignored on SQLite) |
+| `HELMSMAN_DB_MAX_OVERFLOW` | no | `2` | PostgreSQL pool overflow |
+| `HELMSMAN_MIGRATE_ON_BOOT` | no | `1` | `1` → the container entrypoint runs `alembic upgrade head` before serving; Cloud Run sets `0` (migrations run in the `helmsman-migrate` job) |
+| `TEST_DATABASE_URL` | tests only | — | PostgreSQL URL of a throwaway `*_test` database |
+| `PORT` | no | `8001` | HTTP port (Cloud Run injects `8080`) |
 | `HELMSMAN_ADMIN_KEY` | **yes** | — | Facilitator access key for Admin Home |
 | `HELMSMAN_BASE_URL` | no | derived from request | Absolute base for generated share links |
 | `HELMSMAN_LOG_LEVEL` | no | `INFO` | Log level (structlog, JSON to stdout) |
@@ -76,4 +131,4 @@ pnpm exec playwright test tests/e2e --reporter=line
 
 ## Status
 
-Phase 1 — **Core Live Loop**: create workshop → join (cookie auto-resume + personal links) → content-rich milestones → live dashboard → manual help desk. Broadcast, Pause, End workshop, AI help-desk, Spend, stuck/bottleneck/pulse cards, Audit, Templates are visible as clearly-labelled **"Coming in a later phase"** stubs. The spec in `spec/` is the source of truth.
+The product (public landing page, keyless workshop creation, live dashboard, help desk, admin console) is built; Phase 7 moves production to Cloud Run + Cloud SQL (PostgreSQL). The spec in `spec/` is the source of truth.
