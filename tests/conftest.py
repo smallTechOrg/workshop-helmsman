@@ -6,7 +6,7 @@ no SQLite fallback. Schema is built once per session by `alembic upgrade head`; 
 test starts from empty tables (TRUNCATE ... RESTART IDENTITY CASCADE).
 
 TEST_ADMIN_KEY is a fixture value owned by this suite (set via env for each test) —
-never the operator's real HELMSMAN_ADMIN_KEY from .env.
+never the operator's real WORKSHOP0_ADMIN_KEY from .env.
 """
 
 import os
@@ -25,8 +25,8 @@ def _require_test_database_url() -> str:
     if not url:
         pytest.exit(
             "TEST_DATABASE_URL is not set. The suite runs on PostgreSQL only (no SQLite "
-            "fallback). See README.md 'Postgres test setup': createdb helmsman_test && "
-            'export TEST_DATABASE_URL="postgresql+psycopg://$USER@localhost:5432/helmsman_test"',
+            "fallback). See README.md 'Postgres test setup': createdb workshop0_test && "
+            'export TEST_DATABASE_URL="postgresql+psycopg://$USER@localhost:5432/workshop0_test"',
             returncode=4,
         )
     parsed = make_url(url)
@@ -51,8 +51,8 @@ def test_database_url() -> str:
 
 
 def _reset_singletons() -> None:
-    import src.helmsman.config.settings as settings_module
-    from src.helmsman.db.session import reset_db_state
+    import src.workshop0.config.settings as settings_module
+    from src.workshop0.db.session import reset_db_state
 
     settings_module._settings = None
     reset_db_state()
@@ -73,7 +73,7 @@ def _alembic_run(action: str, url: str, revision: str) -> None:
     from alembic import command
     from alembic.config import Config
 
-    import src.helmsman.config.settings as settings_module
+    import src.workshop0.config.settings as settings_module
 
     root = Path(__file__).resolve().parents[1]
     previous = os.environ.get("DATABASE_URL")
@@ -110,15 +110,15 @@ def _truncate_engine(test_database_url):
 
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch, test_database_url, _schema, _truncate_engine):
-    from src.helmsman.db.models import Base
+    from src.workshop0.db.models import Base
 
     tables = ", ".join(f'"{name}"' for name in Base.metadata.tables)
     with _truncate_engine.begin() as connection:
         connection.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
     monkeypatch.setenv("DATABASE_URL", test_database_url)
-    monkeypatch.setenv("HELMSMAN_ADMIN_KEY", TEST_ADMIN_KEY)
-    monkeypatch.setenv("HELMSMAN_BASE_URL", "")
-    monkeypatch.setenv("HELMSMAN_LOG_LEVEL", "WARNING")
+    monkeypatch.setenv("WORKSHOP0_ADMIN_KEY", TEST_ADMIN_KEY)
+    monkeypatch.setenv("WORKSHOP0_BASE_URL", "")
+    monkeypatch.setenv("WORKSHOP0_LOG_LEVEL", "WARNING")
     _reset_singletons()
     yield
     _reset_singletons()
@@ -139,8 +139,8 @@ def scratch_database(test_database_url):
         return base.set(database=name).render_as_string(hide_password=False)
 
     yield _create
-    import src.helmsman.config.settings as settings_module
-    from src.helmsman.db.session import reset_db_state
+    import src.workshop0.config.settings as settings_module
+    from src.workshop0.db.session import reset_db_state
 
     settings_module._settings = None
     reset_db_state()
@@ -155,7 +155,7 @@ def make_app():
     """Build a fresh app over the CURRENT env (schema comes from alembic, once per session)."""
 
     def _make():
-        from src.helmsman.api import create_app
+        from src.workshop0.api import create_app
         return create_app()
 
     return _make

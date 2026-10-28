@@ -6,9 +6,9 @@ from sqlalchemy import update
 
 
 def _backdate_action(action_id: int, seconds: int) -> None:
-    from src.helmsman.api._common import utcnow
-    from src.helmsman.db.models import FacilitatorAction
-    from src.helmsman.db.session import create_db_session
+    from src.workshop0.api._common import utcnow
+    from src.workshop0.db.models import FacilitatorAction
+    from src.workshop0.db.session import create_db_session
 
     with create_db_session() as session:
         session.execute(

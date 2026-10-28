@@ -8,7 +8,7 @@ def test_health_ok_envelope(client):
 
 
 def test_health_returns_internal_error_when_db_unreachable(monkeypatch, app):
-    from src.helmsman.db import session as session_module
+    from src.workshop0.db import session as session_module
 
     engine = session_module.get_engine()
 

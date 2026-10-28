@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from src.helmsman.api._common import api_error, ok
-from src.helmsman.db.session import get_session
+from src.workshop0.api._common import api_error, ok
+from src.workshop0.db.session import get_session
 
 router = APIRouter(prefix="/api")
 

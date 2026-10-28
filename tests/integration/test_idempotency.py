@@ -76,8 +76,8 @@ def test_facilitator_resolve_audits_only_once(client, workshop, tracker):
 
     from sqlalchemy import func, select
 
-    from src.helmsman.db.models import FacilitatorAction
-    from src.helmsman.db.session import create_db_session
+    from src.workshop0.db.models import FacilitatorAction
+    from src.workshop0.db.session import create_db_session
 
     with create_db_session() as session:
         count = session.scalar(

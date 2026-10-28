@@ -97,7 +97,7 @@ export default function PublicCreatePage() {
             <span aria-hidden="true" className="text-xl">
               ⛵
             </span>
-            Workshop Helmsman
+            Workshop0
           </a>
           <p className="text-sm text-stone-500">Free · no signup</p>
         </div>

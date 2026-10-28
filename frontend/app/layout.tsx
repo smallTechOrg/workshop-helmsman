@@ -11,7 +11,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Workshop Helmsman",
+  title: "Workshop0",
   description:
     "Self-hosted workshop tracker — live milestones, leaderboard, and help desk for facilitator-led labs.",
 };

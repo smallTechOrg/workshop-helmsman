@@ -8,10 +8,10 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from src.helmsman.api._common import utcnow
-from src.helmsman.db.models import Participant, Workshop
-from src.helmsman.db.session import create_db_session
-from src.helmsman.security import generate_participant_token
+from src.workshop0.api._common import utcnow
+from src.workshop0.db.models import Participant, Workshop
+from src.workshop0.db.session import create_db_session
+from src.workshop0.security import generate_participant_token
 
 PARTICIPANTS = 300
 POLLS = 300

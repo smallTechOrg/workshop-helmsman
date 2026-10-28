@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.helmsman.api._common import iso_z, ok, request_base_url
-from src.helmsman.db.models import HelpRequest, Participant, Workshop
-from src.helmsman.db.session import get_session
-from src.helmsman.security import require_admin_key
-from src.helmsman.services.workshops import (  # re-exported: the shared request models
+from src.workshop0.api._common import iso_z, ok, request_base_url
+from src.workshop0.db.models import HelpRequest, Participant, Workshop
+from src.workshop0.db.session import get_session
+from src.workshop0.security import require_admin_key
+from src.workshop0.services.workshops import (  # re-exported: the shared request models
     MilestoneIn,
     WorkshopCreate,
     create_workshop as create_workshop_record,
@@ -18,7 +18,7 @@ from src.helmsman.services.workshops import (  # re-exported: the shared request
 
 __all__ = ["router", "MilestoneIn", "WorkshopCreate"]
 
-log = structlog.get_logger("helmsman")
+log = structlog.get_logger("workshop0")
 
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin_key)])
 

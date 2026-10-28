@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Workshop Helmsman — e2e gate config (spec/roadmap.md Phase 1, slice S3).
+ * Workshop0 — e2e gate config (spec/roadmap.md Phase 1, slice S3).
  *
  * The gate starts the app externally (`uv run python -m src`, single origin on
  * :8001 serving /api/* and the static export at /app/*) — therefore NO

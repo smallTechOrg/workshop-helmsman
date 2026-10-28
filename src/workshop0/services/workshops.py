@@ -13,17 +13,17 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.helmsman.api._common import api_error, iso_z, ok
-from src.helmsman.db.models import Milestone, Workshop
-from src.helmsman.security import generate_admin_token, generate_join_slug
-from src.helmsman.services.audit import record_action
-from src.helmsman.services.join_form import JoinFormError, validate_field_defs
-from src.helmsman.services.milestone_input import (
+from src.workshop0.api._common import api_error, iso_z, ok
+from src.workshop0.db.models import Milestone, Workshop
+from src.workshop0.security import generate_admin_token, generate_join_slug
+from src.workshop0.services.audit import record_action
+from src.workshop0.services.join_form import JoinFormError, validate_field_defs
+from src.workshop0.services.milestone_input import (
     MilestoneInputError,
     validate_input_config,
 )
 
-log = structlog.get_logger("helmsman")
+log = structlog.get_logger("workshop0")
 
 NAME_MAX = 120
 DESCRIPTION_MAX = 10_000

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Map workshop0.smalltech.in to the Cloud Run service `helmsman` (Cloud Run domain mapping).
+# Map workshop0.smalltech.in to the Cloud Run service `workshop0` (Cloud Run domain mapping).
 #
 #   bash deploy/cloudrun/domain-map.sh [--wait]
 #
@@ -14,7 +14,7 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-ai-agent-boilerplate0}"
 REGION="${REGION:-us-central1}"
-SERVICE="${SERVICE:-helmsman}"
+SERVICE="${SERVICE:-workshop0}"
 BASE_DOMAIN="smalltech.in"
 DOMAIN="workshop0.smalltech.in"
 POLL_SECONDS=10

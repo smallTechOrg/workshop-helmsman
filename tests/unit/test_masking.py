@@ -1,4 +1,4 @@
-from src.helmsman.observability.logging import mask_path, mask_token
+from src.workshop0.observability.logging import mask_path, mask_token
 
 
 def test_mask_token_shows_first_six_chars_only():

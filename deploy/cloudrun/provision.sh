@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Idempotent (check-then-create) provisioning of everything Helmsman needs on GCP.
+# Idempotent (check-then-create) provisioning of everything Workshop0 needs on GCP.
 #
 #   bash deploy/cloudrun/provision.sh [--dry-run] [--rotate <secret-name>]
 #
 # Run from the repo root as an operator authenticated to gcloud (and gh, optional).
 # Prints `CREATED <what>` for every resource it creates, `EXISTS <what>` for every
-# pre-existing one. Touches only helmsman-prefixed resources. Secret values are
+# pre-existing one. Touches only workshop0-prefixed resources. Secret values are
 # piped via stdin and never printed. Exits non-zero on any failure.
 set -euo pipefail
 
@@ -14,22 +14,22 @@ PROJECT_NUMBER="${PROJECT_NUMBER:-870371939888}"
 REGION="${REGION:-us-central1}"
 SQL_INSTANCE="${SQL_INSTANCE:-ai-agent-db}"
 SQL_PRIVATE_IP="${SQL_PRIVATE_IP:-10.110.112.7}"
-AR_REPO="helmsman"
-RUN_SA_ID="helmsman-run"
-DEPLOYER_SA_ID="helmsman-deployer"
+AR_REPO="workshop0"
+RUN_SA_ID="workshop0-run"
+DEPLOYER_SA_ID="workshop0-deployer"
 RUN_SA="${RUN_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 DEPLOYER_SA="${DEPLOYER_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 WIF_POOL="github"
-WIF_PROVIDER_ID="helmsman-github"
-GH_REPO="smallTechOrg/workshop-helmsman"
-DB_NAME="helmsman"
-DB_USER="helmsman_app"
-SERVICE="helmsman"
-DBINIT_JOB="helmsman-dbinit"
+WIF_PROVIDER_ID="workshop0-github"
+GH_REPO="smallTechOrg/workshop0"
+DB_NAME="workshop0"
+DB_USER="workshop0_app"
+SERVICE="workshop0"
+DBINIT_JOB="workshop0-dbinit"
 # dbinit runs from a public Google image (the app image does not exist before the
 # first deploy); psycopg is pip-installed at job start, dbinit.py is passed as base64.
 DBINIT_IMAGE="gcr.io/google.com/cloudsdktool/google-cloud-cli:slim"
-SECRETS=(helmsman-database-url helmsman-openrouter-api-key helmsman-admin-key)
+SECRETS=(workshop0-database-url workshop0-openrouter-api-key workshop0-admin-key)
 
 DRY=0
 ROTATE=""
@@ -83,7 +83,7 @@ sa_has_role() { # sa member role
     --filter="bindings.role=$3 AND bindings.members=$2" --format='value(bindings.role)' 2>/dev/null)" ]
 }
 
-echo "== Helmsman provisioning: project=$PROJECT_ID region=$REGION dry-run=$DRY =="
+echo "== Workshop0 provisioning: project=$PROJECT_ID region=$REGION dry-run=$DRY =="
 
 gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q . || die "gcloud is not authenticated"
 
@@ -101,12 +101,12 @@ if gcloud artifacts repositories describe "$AR_REPO" --location "$REGION" "${G[@
 elif [ $DRY -eq 1 ]; then would "artifact-registry-repo $AR_REPO"
 else
   gcloud artifacts repositories create "$AR_REPO" --repository-format docker --location "$REGION" \
-    --description "Helmsman images" "${G[@]}" >/dev/null
+    --description "Workshop0 images" "${G[@]}" >/dev/null
   created "artifact-registry-repo $AR_REPO"
 fi
 
 # 3. Service accounts ------------------------------------------------------
-for sa in "$RUN_SA_ID:Helmsman Cloud Run runtime" "$DEPLOYER_SA_ID:Helmsman GitHub Actions deployer"; do
+for sa in "$RUN_SA_ID:Workshop0 Cloud Run runtime" "$DEPLOYER_SA_ID:Workshop0 GitHub Actions deployer"; do
   id="${sa%%:*}"; name="${sa#*:}"
   if gcloud iam service-accounts describe "${id}@${PROJECT_ID}.iam.gserviceaccount.com" "${G[@]}" >/dev/null 2>&1; then
     exists "service-account $id"
@@ -146,9 +146,9 @@ else
 fi
 
 # 5. Database user (the database itself is created by the dbinit job, step 8) ----
-# Password lives only in Secret Manager (inside helmsman-database-url).
+# Password lives only in Secret Manager (inside workshop0-database-url).
 db_password_from_secret() {
-  gcloud secrets versions access latest --secret helmsman-database-url "${G[@]}" 2>/dev/null \
+  gcloud secrets versions access latest --secret workshop0-database-url "${G[@]}" 2>/dev/null \
     | sed -E 's#^[^:]+://[^:]+:([^@]+)@.*#\1#'
 }
 make_url() { printf 'postgresql+psycopg://%s:%s@%s:5432/%s?sslmode=require' "$DB_USER" "$1" "$SQL_PRIVATE_IP" "$DB_NAME"; }
@@ -156,20 +156,20 @@ make_url() { printf 'postgresql+psycopg://%s:%s@%s:5432/%s?sslmode=require' "$DB
 new_password() { printf 'Hm_%s9' "$(openssl rand -hex 24)"; }
 user_exists() { gcloud sql users list --instance "$SQL_INSTANCE" "${G[@]}" --format='value(name)' | grep -qx "$DB_USER"; }
 
-DB_URL_SECRET_EXISTS=0; secret_exists helmsman-database-url && DB_URL_SECRET_EXISTS=1
+DB_URL_SECRET_EXISTS=0; secret_exists workshop0-database-url && DB_URL_SECRET_EXISTS=1
 USER_EXISTS=0; user_exists && USER_EXISTS=1
 PW=""
 if [ $DRY -eq 0 ]; then
-  if [ "$DB_URL_SECRET_EXISTS" -eq 1 ] && [ "$ROTATE" != "helmsman-database-url" ]; then
+  if [ "$DB_URL_SECRET_EXISTS" -eq 1 ] && [ "$ROTATE" != "workshop0-database-url" ]; then
     PW="$(db_password_from_secret)"
-    [ -n "$PW" ] || die "could not read the password back from helmsman-database-url"
+    [ -n "$PW" ] || die "could not read the password back from workshop0-database-url"
   else
     PW="$(new_password)"   # fresh secret, or explicit rotation
   fi
 fi
 if [ "$USER_EXISTS" -eq 1 ]; then
   exists "sql-user $DB_USER"
-  if [ $DRY -eq 0 ] && { [ "$DB_URL_SECRET_EXISTS" -eq 0 ] || [ "$ROTATE" = "helmsman-database-url" ]; }; then
+  if [ $DRY -eq 0 ] && { [ "$DB_URL_SECRET_EXISTS" -eq 0 ] || [ "$ROTATE" = "workshop0-database-url" ]; }; then
     # Our own user, but the stored secret is absent/being rotated: re-apply the password.
     gcloud sql users set-password "$DB_USER" --instance "$SQL_INSTANCE" --password "$PW" "${G[@]}" >/dev/null
     info "sql-user $DB_USER password re-applied"
@@ -200,18 +200,18 @@ put_secret() { # name, value-producing function
 }
 val_dburl()  { make_url "$PW"; }
 val_openrouter() { source_value OPENROUTER_API_KEY; }
-val_adminkey()   { source_value HELMSMAN_ADMIN_KEY; }
+val_adminkey()   { source_value WORKSHOP0_ADMIN_KEY; }
 
 # Pre-flight: refuse before creating anything half-way if a needed source value is missing.
-if ! secret_exists helmsman-openrouter-api-key || [ "$ROTATE" = "helmsman-openrouter-api-key" ]; then
+if ! secret_exists workshop0-openrouter-api-key || [ "$ROTATE" = "workshop0-openrouter-api-key" ]; then
   have_source OPENROUTER_API_KEY || die "OPENROUTER_API_KEY not in the environment or .env"
 fi
-if ! secret_exists helmsman-admin-key || [ "$ROTATE" = "helmsman-admin-key" ]; then
-  have_source HELMSMAN_ADMIN_KEY || die "HELMSMAN_ADMIN_KEY not in the environment or .env"
+if ! secret_exists workshop0-admin-key || [ "$ROTATE" = "workshop0-admin-key" ]; then
+  have_source WORKSHOP0_ADMIN_KEY || die "WORKSHOP0_ADMIN_KEY not in the environment or .env"
 fi
-put_secret helmsman-database-url val_dburl
-put_secret helmsman-openrouter-api-key val_openrouter
-put_secret helmsman-admin-key val_adminkey
+put_secret workshop0-database-url val_dburl
+put_secret workshop0-openrouter-api-key val_openrouter
+put_secret workshop0-admin-key val_adminkey
 PW=""
 
 # 7. IAM -------------------------------------------------------------------
@@ -254,7 +254,7 @@ else
   created "iam serviceAccountUser -> $DEPLOYER_SA_ID on $RUN_SA_ID"
 fi
 
-# 8. dbinit job: create DB `helmsman` (owner helmsman_app) + schema privilege probe ----
+# 8. dbinit job: create DB `workshop0` (owner workshop0_app) + schema privilege probe ----
 DBINIT_B64="$(base64 < "$HERE/dbinit.py" | tr -d '\n')"
 DBINIT_CMD='pip install -q --disable-pip-version-check --break-system-packages "psycopg[binary]>=3.2" 2>&1 | tail -3; echo "$DBINIT_PY_B64" | base64 -d > /tmp/dbinit.py && python3 /tmp/dbinit.py'
 JOB_VERB=""
@@ -271,7 +271,7 @@ else
     --max-retries 0 --task-timeout 300 \
     --command bash --args=-c --args="$DBINIT_CMD" \
     --set-env-vars "DBINIT_PY_B64=${DBINIT_B64}" \
-    --set-secrets DATABASE_URL=helmsman-database-url:latest >/dev/null
+    --set-secrets DATABASE_URL=workshop0-database-url:latest >/dev/null
   [ "$JOB_VERB" = create ] && created "run-job $DBINIT_JOB" || exists "run-job $DBINIT_JOB"
   if ! gcloud run jobs execute "$DBINIT_JOB" --region "$REGION" "${G[@]}" --wait >/dev/null 2>&1; then
     echo "ERROR dbinit job failed; recent job logs:" >&2

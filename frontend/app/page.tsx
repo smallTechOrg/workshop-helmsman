@@ -14,7 +14,7 @@ import type { Metadata } from "next";
 import { YourWorkshops } from "@/components/landing/YourWorkshops";
 
 export const metadata: Metadata = {
-  title: "Workshop Helmsman — run a hands-on workshop without losing the room",
+  title: "Workshop0 — run a hands-on workshop without losing the room",
   description:
     "Free, self-hosted workshop tracker. Compose markdown milestones, share one join link, and watch 300+ participants move in real time. No signup, no accounts.",
 };
@@ -58,7 +58,7 @@ const FEATURES: {
   {
     icon: "🚨",
     title: "Proactive stuck & bottleneck alerts",
-    body: "Helmsman watches the shape of the room for you: who has not moved for too long, which milestone is quietly swallowing everyone, and whether your pace is on track against the plan.",
+    body: "Workshop0 watches the shape of the room for you: who has not moved for too long, which milestone is quietly swallowing everyone, and whether your pace is on track against the plan.",
   },
   {
     icon: "🧾",
@@ -104,8 +104,8 @@ const FAQS: { q: string; a: React.ReactNode }[] = [
     q: "Do I need an account?",
     a: (
       <>
-        No. There is no signup, no password and no login anywhere in Workshop
-        Helmsman. When you create a workshop you are given a private facilitator
+        No. There is no signup, no password and no login anywhere in
+        Workshop0. When you create a workshop you are given a private facilitator
         link — <strong>that link is the credential</strong>. Anyone holding it can run
         that workshop; anyone without it cannot see it.
       </>
@@ -147,7 +147,7 @@ const FAQS: { q: string; a: React.ReactNode }[] = [
     q: "Is it really free? Where does my data live?",
     a: (
       <>
-        Yes — Workshop Helmsman is free and open, and it is self-hosted: the workshop
+        Yes — Workshop0 is free and open, and it is self-hosted: the workshop
         data lives in this instance's own database, on the machine serving this page.
         No third party gets your participants' names.
       </>
@@ -197,7 +197,7 @@ export default function LandingPage() {
             <span aria-hidden="true" className="text-xl">
               ⛵
             </span>
-            Workshop Helmsman
+            Workshop0
             <a
               href="https://smalltech.in"
               rel="noopener noreferrer"
@@ -253,7 +253,7 @@ export default function LandingPage() {
                 <span className="text-brand-600">without losing the room.</span>
               </h1>
               <p className="mt-5 max-w-xl text-lg leading-relaxed text-stone-600">
-                Workshop Helmsman turns your agenda into live milestones your
+                Workshop0 turns your agenda into live milestones your
                 participants tick off in their browser — so you can see, in real time,
                 exactly who is flying, who is stuck and which step is quietly
                 swallowing everybody.
@@ -477,7 +477,7 @@ export default function LandingPage() {
       <footer className="border-t border-stone-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-8 text-sm text-stone-500 sm:px-6">
           <p>
-            <span aria-hidden="true">⛵</span> Workshop Helmsman — free and
+            <span aria-hidden="true">⛵</span> Workshop0 — free and
             self-hosted, run by whoever operates this instance.
           </p>
           <p className="flex items-center gap-4">
@@ -502,7 +502,7 @@ export default function LandingPage() {
               </span>
             </a>
             <a
-              href="https://github.com/smallTechOrg/workshop-helmsman"
+              href="https://github.com/smallTechOrg/workshop0"
               rel="noopener noreferrer"
               className="group flex items-center gap-2 hover:text-stone-800"
             >

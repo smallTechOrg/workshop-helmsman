@@ -1,4 +1,4 @@
-"""One-shot, verified, all-or-nothing import of a Helmsman SQLite database into PostgreSQL.
+"""One-shot, verified, all-or-nothing import of a Workshop0 SQLite database into PostgreSQL.
 
     uv run python scripts/sqlite_to_postgres.py --sqlite PATH
         [--target-url URL]          # else env TARGET_DATABASE_URL, else env DATABASE_URL
@@ -41,7 +41,7 @@ if str(REPO_ROOT) not in sys.path:  # `python scripts/x.py` puts scripts/ on the
 from sqlalchemy import Boolean, DateTime, Integer, Numeric, Table, create_engine, text  # noqa: E402
 from sqlalchemy.engine import Connection, make_url  # noqa: E402
 
-from src.helmsman.db.models import Base  # noqa: E402
+from src.workshop0.db.models import Base  # noqa: E402
 
 EXIT_OK, EXIT_FAILED, EXIT_REFUSED = 0, 1, 2
 
@@ -289,7 +289,7 @@ def run_import(
             raise ImportRefused(
                 "source has no alembic_version / is missing app tables"
                 + (f" ({', '.join(missing_src)})" if missing_src else "")
-                + ". Is it a Helmsman database?"
+                + ". Is it a Workshop0 database?"
             )
 
         with engine.connect() as probe:
@@ -357,7 +357,7 @@ def run_import(
     except Exception as exc:  # DB errors can echo row values in their text: print the type only
         log(f"[import] FAILED: {type(exc).__name__} during the copy. Rolled back; the target is unchanged.")
         log("[import] (re-run with --debug for the full error; it may contain row data)")
-        if os.environ.get("HELMSMAN_IMPORT_DEBUG"):
+        if os.environ.get("WORKSHOP0_IMPORT_DEBUG"):
             raise
         return EXIT_FAILED
     finally:
@@ -387,7 +387,7 @@ def verify(conn: Connection, tables: list[Table], source_counts: dict[str, int])
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Import a Helmsman SQLite database into PostgreSQL.")
+    parser = argparse.ArgumentParser(description="Import a Workshop0 SQLite database into PostgreSQL.")
     parser.add_argument("--sqlite", required=True, type=Path, help="source SQLite file (opened read-only)")
     parser.add_argument("--target-url", help="PostgreSQL URL (else env TARGET_DATABASE_URL, else DATABASE_URL)")
     parser.add_argument("--replace", action="store_true", help="wipe the target's app tables first")
@@ -395,7 +395,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--debug", action="store_true", help="re-raise unexpected errors (may print row data)")
     args = parser.parse_args(argv)
     if args.debug:
-        os.environ["HELMSMAN_IMPORT_DEBUG"] = "1"
+        os.environ["WORKSHOP0_IMPORT_DEBUG"] = "1"
     if args.batch_size < 1:
         parser.error("--batch-size must be >= 1")
     url = args.target_url or os.environ.get("TARGET_DATABASE_URL") or os.environ.get("DATABASE_URL")

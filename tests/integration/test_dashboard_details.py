@@ -24,9 +24,9 @@ def test_leaderboard_rank_earlier_reach_time_wins(
 
     from sqlalchemy import update
 
-    from src.helmsman.db.models import MilestoneCompletion
-    from src.helmsman.db.session import create_db_session
-    from src.helmsman.api._common import utcnow
+    from src.workshop0.db.models import MilestoneCompletion
+    from src.workshop0.db.session import create_db_session
+    from src.workshop0.api._common import utcnow
 
     # Make the reach-times unambiguous (SQLite stores microseconds; force a clear gap)
     with create_db_session() as session:
@@ -75,9 +75,9 @@ def test_help_queue_caps_resolved_at_50_with_totals_in_stats(
 
     from datetime import timedelta
 
-    from src.helmsman.api._common import utcnow
-    from src.helmsman.db.models import HelpRequest, Workshop
-    from src.helmsman.db.session import create_db_session
+    from src.workshop0.api._common import utcnow
+    from src.workshop0.db.models import HelpRequest, Workshop
+    from src.workshop0.db.session import create_db_session
 
     base_time = utcnow()
     with create_db_session() as session:
@@ -129,8 +129,8 @@ def test_snapshots_are_built_fresh_and_see_unversioned_changes(
 
     from sqlalchemy import update
 
-    from src.helmsman.db.models import Participant
-    from src.helmsman.db.session import create_db_session
+    from src.workshop0.db.models import Participant
+    from src.workshop0.db.session import create_db_session
 
     url = f"/api/f/{workshop['admin_token']}/dashboard"
     first = client.get(url).json()["data"]
@@ -168,10 +168,10 @@ def test_state_poll_touches_stale_last_seen_without_version_bump(
 
     from sqlalchemy import update
 
-    from src.helmsman.api._common import utcnow
-    from src.helmsman.db.models import Participant
-    from src.helmsman.db.session import create_db_session
-    from src.helmsman.services.snapshots import ACTIVE_WINDOW_SECONDS
+    from src.workshop0.api._common import utcnow
+    from src.workshop0.db.models import Participant
+    from src.workshop0.db.session import create_db_session
+    from src.workshop0.services.snapshots import ACTIVE_WINDOW_SECONDS
 
     with create_db_session() as session:
         session.execute(

@@ -1,5 +1,5 @@
 [project]
-name = "workshop-helmsman"
+name = "workshop0"
 version = "0.2.0"
 description = "Self-hosted workshop assistant for facilitator-led hands-on technical labs"
 requires-python = ">=3.12"

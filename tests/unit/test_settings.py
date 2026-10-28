@@ -1,15 +1,15 @@
 import pytest
 
-from src.helmsman.config.settings import get_settings
+from src.workshop0.config.settings import get_settings
 
 
 def test_defaults(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("PORT", raising=False)
-    from src.helmsman.config.settings import Settings
+    from src.workshop0.config.settings import Settings
 
     settings = Settings(_env_file=None)
-    assert settings.database_url == "sqlite:///data/helmsman.db"
+    assert settings.database_url == "sqlite:///data/workshop0.db"
     assert settings.port == 8001
     assert settings.resolved_log_level in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
@@ -17,7 +17,7 @@ def test_defaults(monkeypatch):
 def test_env_overrides(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "sqlite:///elsewhere.db")
     monkeypatch.setenv("PORT", "9999")
-    import src.helmsman.config.settings as m
+    import src.workshop0.config.settings as m
 
     m._settings = None
     settings = get_settings()
@@ -26,46 +26,46 @@ def test_env_overrides(monkeypatch):
 
 
 def test_log_level_tolerates_inline_comment(monkeypatch):
-    monkeypatch.setenv("HELMSMAN_LOG_LEVEL", "debug   # verbose")
-    import src.helmsman.config.settings as m
+    monkeypatch.setenv("WORKSHOP0_LOG_LEVEL", "debug   # verbose")
+    import src.workshop0.config.settings as m
 
     m._settings = None
     assert get_settings().resolved_log_level == "DEBUG"
 
 
 def test_invalid_log_level_falls_back_to_info(monkeypatch):
-    monkeypatch.setenv("HELMSMAN_LOG_LEVEL", "chatty")
-    import src.helmsman.config.settings as m
+    monkeypatch.setenv("WORKSHOP0_LOG_LEVEL", "chatty")
+    import src.workshop0.config.settings as m
 
     m._settings = None
     assert get_settings().resolved_log_level == "INFO"
 
 
 def test_base_url_trailing_slash_stripped(monkeypatch):
-    monkeypatch.setenv("HELMSMAN_BASE_URL", "https://helm.example.com/")
-    import src.helmsman.config.settings as m
+    monkeypatch.setenv("WORKSHOP0_BASE_URL", "https://helm.example.com/")
+    import src.workshop0.config.settings as m
 
     m._settings = None
     assert get_settings().resolved_base_url == "https://helm.example.com"
 
 
 def test_missing_admin_key_fails_startup_hard(monkeypatch):
-    monkeypatch.setenv("HELMSMAN_ADMIN_KEY", "   ")
-    import src.helmsman.config.settings as m
+    monkeypatch.setenv("WORKSHOP0_ADMIN_KEY", "   ")
+    import src.workshop0.config.settings as m
 
     m._settings = None
-    from src.helmsman.api import create_app
+    from src.workshop0.api import create_app
 
-    with pytest.raises(RuntimeError, match="HELMSMAN_ADMIN_KEY"):
+    with pytest.raises(RuntimeError, match="WORKSHOP0_ADMIN_KEY"):
         create_app()
 
 
 def test_missing_openrouter_key_is_never_an_error(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "")
-    import src.helmsman.config.settings as m
+    import src.workshop0.config.settings as m
 
     m._settings = None
-    from src.helmsman.api import create_app
+    from src.workshop0.api import create_app
 
     app = create_app()
     assert app is not None
@@ -74,7 +74,7 @@ def test_missing_openrouter_key_is_never_an_error(monkeypatch):
 @pytest.mark.parametrize("prefix", ["postgres://", "postgresql://"])
 def test_postgres_url_normalised_to_psycopg(monkeypatch, prefix):
     monkeypatch.setenv("DATABASE_URL", f"{prefix}u@h:5432/db?sslmode=require")
-    from src.helmsman.config.settings import Settings
+    from src.workshop0.config.settings import Settings
 
     assert (
         Settings(_env_file=None).database_url
@@ -83,7 +83,7 @@ def test_postgres_url_normalised_to_psycopg(monkeypatch, prefix):
 
 
 def test_explicit_driver_and_sqlite_urls_untouched(monkeypatch):
-    from src.helmsman.config.settings import Settings
+    from src.workshop0.config.settings import Settings
 
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u@h/db")
     assert Settings(_env_file=None).database_url == "postgresql+psycopg://u@h/db"
@@ -92,23 +92,33 @@ def test_explicit_driver_and_sqlite_urls_untouched(monkeypatch):
 
 
 def test_pool_defaults_and_overrides(monkeypatch):
-    from src.helmsman.config.settings import Settings
+    from src.workshop0.config.settings import Settings
 
-    monkeypatch.delenv("HELMSMAN_DB_POOL_SIZE", raising=False)
-    monkeypatch.delenv("HELMSMAN_DB_MAX_OVERFLOW", raising=False)
+    monkeypatch.delenv("WORKSHOP0_DB_POOL_SIZE", raising=False)
+    monkeypatch.delenv("WORKSHOP0_DB_MAX_OVERFLOW", raising=False)
     s = Settings(_env_file=None)
-    assert (s.helmsman_db_pool_size, s.helmsman_db_max_overflow) == (3, 2)
-    monkeypatch.setenv("HELMSMAN_DB_POOL_SIZE", "5")
-    monkeypatch.setenv("HELMSMAN_DB_MAX_OVERFLOW", "7")
+    assert (s.workshop0_db_pool_size, s.workshop0_db_max_overflow) == (3, 2)
+    monkeypatch.setenv("WORKSHOP0_DB_POOL_SIZE", "5")
+    monkeypatch.setenv("WORKSHOP0_DB_MAX_OVERFLOW", "7")
     s = Settings(_env_file=None)
-    assert (s.helmsman_db_pool_size, s.helmsman_db_max_overflow) == (5, 7)
+    assert (s.workshop0_db_pool_size, s.workshop0_db_max_overflow) == (5, 7)
 
 
 def test_invalid_pool_size_rejected(monkeypatch):
     from pydantic import ValidationError
 
-    from src.helmsman.config.settings import Settings
+    from src.workshop0.config.settings import Settings
 
-    monkeypatch.setenv("HELMSMAN_DB_POOL_SIZE", "lots")
+    monkeypatch.setenv("WORKSHOP0_DB_POOL_SIZE", "lots")
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_workshop0_env_prefix_is_read(monkeypatch):
+    from src.workshop0.config.settings import Settings
+
+    monkeypatch.setenv("WORKSHOP0_ADMIN_KEY", "prefix-key")
+    monkeypatch.setenv("WORKSHOP0_BASE_URL", "https://w0.example.com")
+    s = Settings(_env_file=None)
+    assert s.resolved_admin_key == "prefix-key"
+    assert s.workshop0_base_url.rstrip("/") == "https://w0.example.com"

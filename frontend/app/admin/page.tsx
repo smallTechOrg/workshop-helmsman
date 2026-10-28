@@ -1,5 +1,6 @@
 "use client";
 
+import { getWithLegacy } from "@/lib/storageCompat";
 import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
@@ -16,7 +17,7 @@ import { useToast } from "@/components/ui/Toast";
 import { WorkshopCard } from "@/components/facilitator/WorkshopCard";
 import { CreateWorkshopModal } from "@/components/facilitator/CreateWorkshopModal";
 
-const LS_ADMIN_KEY = "helmsman_admin_key";
+const LS_ADMIN_KEY = "workshop0_admin_key";
 
 type Phase = "boot" | "gate" | "authed";
 
@@ -50,7 +51,7 @@ export default function AdminHomePage() {
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
           try {
-            window.localStorage.removeItem(LS_ADMIN_KEY);
+            window.localStorage.setItem(LS_ADMIN_KEY, "");
           } catch {
             // ignore
           }
@@ -75,7 +76,7 @@ export default function AdminHomePage() {
   useEffect(() => {
     let saved: string | null = null;
     try {
-      saved = window.localStorage.getItem(LS_ADMIN_KEY);
+      saved = getWithLegacy(LS_ADMIN_KEY);
     } catch {
       // ignore
     }
@@ -114,7 +115,7 @@ export default function AdminHomePage() {
 
   const signOut = () => {
     try {
-      window.localStorage.removeItem(LS_ADMIN_KEY);
+      window.localStorage.setItem(LS_ADMIN_KEY, "");
     } catch {
       // ignore
     }
@@ -148,7 +149,7 @@ export default function AdminHomePage() {
               ⛵
             </p>
             <h1 className="mt-2 text-xl font-semibold text-stone-900">
-              Workshop Helmsman
+              Workshop0
             </h1>
             <p className="mt-1 text-sm text-stone-500">
               Enter this server's facilitator access key to manage workshops.
@@ -186,7 +187,7 @@ export default function AdminHomePage() {
                   <>
                     That key doesn't match this server's{" "}
                     <code className="rounded bg-red-50 px-1 font-mono text-xs">
-                      HELMSMAN_ADMIN_KEY
+                      WORKSHOP0_ADMIN_KEY
                     </code>
                     .
                   </>
@@ -221,7 +222,7 @@ export default function AdminHomePage() {
           <span aria-hidden="true" className="text-2xl">
             ⛵
           </span>
-          <h1 className="text-xl font-semibold text-stone-900">Workshop Helmsman</h1>
+          <h1 className="text-xl font-semibold text-stone-900">Workshop0</h1>
         </div>
         <nav aria-label="Admin actions" className="flex flex-wrap items-center gap-2">
           <span

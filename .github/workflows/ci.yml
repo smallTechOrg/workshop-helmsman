@@ -18,14 +18,14 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     env:
-      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/helmsman_test
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/workshop0_test
     services:
       postgres:
         image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: helmsman_test
+          POSTGRES_DB: workshop0_test
         ports:
           - 5432:5432
         options: >-
@@ -68,15 +68,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: [backend, frontend-build]
     env:
-      HELMSMAN_ADMIN_KEY: ci-admin-key-0123456789
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/helmsman_e2e
+      WORKSHOP0_ADMIN_KEY: ci-admin-key-0123456789
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/workshop0_e2e
     services:
       postgres:
         image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: helmsman_e2e
+          POSTGRES_DB: workshop0_e2e
         ports:
           - 5432:5432
         options: >-

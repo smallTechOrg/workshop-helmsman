@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-from src.helmsman.services.intelligence import compute_bottleneck, compute_pulse, compute_stuck
+from src.workshop0.services.intelligence import compute_bottleneck, compute_pulse, compute_stuck
 
 T0 = datetime(2026, 7, 20, 12, 0, 0, tzinfo=timezone.utc)
 

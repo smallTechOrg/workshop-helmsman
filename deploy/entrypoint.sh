@@ -1,7 +1,7 @@
 #!/bin/sh
 # Container entrypoint.
 #   entrypoint.sh           serve; run `alembic upgrade head` first only when
-#                           HELMSMAN_MIGRATE_ON_BOOT is 1/true (default 1).
+#                           WORKSHOP0_MIGRATE_ON_BOOT is 1/true (default 1).
 #   entrypoint.sh migrate   run `alembic upgrade head` and exit (Cloud Run job).
 # Executes the venv binaries directly (PATH is set in the Dockerfile), not
 # `uv run`, to keep cold starts short.
@@ -14,13 +14,13 @@ if [ "${1:-}" = "migrate" ]; then
   exec alembic upgrade head
 fi
 
-case "$(printf '%s' "${HELMSMAN_MIGRATE_ON_BOOT:-1}" | tr '[:upper:]' '[:lower:]')" in
+case "$(printf '%s' "${WORKSHOP0_MIGRATE_ON_BOOT:-1}" | tr '[:upper:]' '[:lower:]')" in
   1|true)
     echo "[entrypoint] applying migrations..."
     alembic upgrade head
     ;;
   *)
-    echo "[entrypoint] HELMSMAN_MIGRATE_ON_BOOT off; skipping migrations"
+    echo "[entrypoint] WORKSHOP0_MIGRATE_ON_BOOT off; skipping migrations"
     ;;
 esac
 

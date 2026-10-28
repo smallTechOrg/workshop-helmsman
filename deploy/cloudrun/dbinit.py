@@ -1,8 +1,8 @@
-"""One-off database bootstrap for Helmsman (runs as Cloud Run Job `helmsman-dbinit`).
+"""One-off database bootstrap for Workshop0 (runs as Cloud Run Job `workshop0-dbinit`).
 
-Connects with DATABASE_URL (user helmsman_app) to the `postgres` maintenance
-database, creates database `helmsman` owned by helmsman_app if absent, then
-probes that helmsman_app can CREATE TABLE in schema public.
+Connects with DATABASE_URL (user workshop0_app) to the `postgres` maintenance
+database, creates database `workshop0` owned by workshop0_app if absent, then
+probes that workshop0_app can CREATE TABLE in schema public.
 
 Never prints the URL or password. Stdout markers: DBINIT created-database |
 DBINIT database-exists | DBINIT schema-ok. Exit non-zero on failure.
@@ -14,8 +14,8 @@ from urllib.parse import urlsplit, urlunsplit
 import psycopg
 from psycopg import sql
 
-DB_NAME = "helmsman"
-OWNER = "helmsman_app"
+DB_NAME = "workshop0"
+OWNER = "workshop0_app"
 
 
 def _conninfo(url: str, dbname: str) -> str:
@@ -51,7 +51,7 @@ def main() -> int:
     # Schema privilege probe (rolled back; leaves nothing behind).
     with psycopg.connect(_conninfo(url, DB_NAME)) as conn:
         try:
-            conn.execute("CREATE TABLE _helmsman_probe (id int)")
+            conn.execute("CREATE TABLE _workshop0_probe (id int)")
         except psycopg.Error as exc:
             conn.rollback()
             print(f"DBINIT error: cannot CREATE TABLE in public ({type(exc).__name__})")

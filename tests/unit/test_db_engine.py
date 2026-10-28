@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-import src.helmsman.config.settings as settings_mod
-from src.helmsman.db import session as session_mod
+import src.workshop0.config.settings as settings_mod
+from src.workshop0.db import session as session_mod
 
 PG_URL = os.environ.get("TEST_DATABASE_URL", "")
 
@@ -23,8 +23,8 @@ def _reset(monkeypatch):
 @pytest.mark.skipif(not PG_URL.startswith("postgresql"), reason="needs TEST_DATABASE_URL (PostgreSQL)")
 def test_postgres_engine_pool_kwargs(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", PG_URL)
-    monkeypatch.setenv("HELMSMAN_DB_POOL_SIZE", "4")
-    monkeypatch.setenv("HELMSMAN_DB_MAX_OVERFLOW", "1")
+    monkeypatch.setenv("WORKSHOP0_DB_POOL_SIZE", "4")
+    monkeypatch.setenv("WORKSHOP0_DB_MAX_OVERFLOW", "1")
     engine = session_mod.get_engine()
     pool = engine.pool
     assert engine.dialect.driver == "psycopg"
@@ -90,7 +90,7 @@ def test_main_defaults_to_8001(monkeypatch):
 def test_logging_severity_key(capsys, method, expected):
     import structlog
 
-    from src.helmsman.observability.logging import configure_logging
+    from src.workshop0.observability.logging import configure_logging
 
     configure_logging("DEBUG")
     getattr(structlog.get_logger("t"), method)("hello")

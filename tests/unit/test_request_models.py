@@ -1,9 +1,9 @@
 import pytest
 from pydantic import ValidationError
 
-from src.helmsman.api.admin import MilestoneIn, WorkshopCreate
-from src.helmsman.api.facilitator import AnswerBody
-from src.helmsman.api.participant import HelpBody, JoinBody
+from src.workshop0.api.admin import MilestoneIn, WorkshopCreate
+from src.workshop0.api.facilitator import AnswerBody
+from src.workshop0.api.participant import HelpBody, JoinBody
 
 VALID_MILESTONE = {"title": "Set up", "content_md": "x", "minutes": 30}
 

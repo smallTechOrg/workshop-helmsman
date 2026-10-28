@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from src.helmsman.services.snapshots import (
+from src.workshop0.services.snapshots import (
     build_distribution,
     median_progress_pct,
     progress_pct,
@@ -74,7 +74,7 @@ def test_rank_has_no_tie_sharing():
 
 
 def test_snapshot_cache_machinery_is_gone():
-    from src.helmsman.services import snapshots
+    from src.workshop0.services import snapshots
 
     for name in ("_cache", "_memoized", "clear_snapshot_cache", "SNAPSHOT_TTL_SECONDS", "_monotonic"):
         assert not hasattr(snapshots, name), name

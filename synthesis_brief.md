@@ -1,4 +1,4 @@
-# Synthesis Brief — Improved Workshop Helmsman
+# Synthesis Brief — Improved Workshop0
 
 ## What the agent does & who uses it
 A self-hosted workshop tracker for **remote, facilitator-led sessions with 100+ participants**. Facilitators create a workshop (agenda + milestones + custom join form), get a participant link and admin token, and run the session in real time. Participants join via slug, fill the onboarding form, and progress through milestones. The facilitator watches a live dashboard with per-participant progress, cohort completion bars, and real-time help requests — and can advance milestones, broadcast announcements, or send targeted hints. After the session, data exports as CSV/JSON.

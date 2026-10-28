@@ -258,8 +258,8 @@ def paused_tracker(client, make_client, workshop, join_participant):
 
     from sqlalchemy import update
 
-    from src.helmsman.db.models import Workshop
-    from src.helmsman.db.session import create_db_session
+    from src.workshop0.db.models import Workshop
+    from src.workshop0.db.session import create_db_session
 
     with create_db_session() as session:
         # Direct-DB stand-in for the Phase-2 pause endpoint — which also bumps
@@ -312,8 +312,8 @@ def archived(client, make_client, workshop, join_participant):
 
     from sqlalchemy import update
 
-    from src.helmsman.db.models import Workshop
-    from src.helmsman.db.session import create_db_session
+    from src.workshop0.db.models import Workshop
+    from src.workshop0.db.session import create_db_session
 
     with create_db_session() as session:
         # Direct-DB stand-in for the Phase-3 archive transition — which also bumps

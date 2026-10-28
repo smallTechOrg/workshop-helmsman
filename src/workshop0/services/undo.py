@@ -5,10 +5,10 @@ from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
-from src.helmsman.api._common import api_error, as_utc, utcnow
-from src.helmsman.db.models import Broadcast, FacilitatorAction, MilestoneCompletion, Workshop
-from src.helmsman.services.audit import record_action
-from src.helmsman.services.snapshots import bump_state_version
+from src.workshop0.api._common import api_error, as_utc, utcnow
+from src.workshop0.db.models import Broadcast, FacilitatorAction, MilestoneCompletion, Workshop
+from src.workshop0.services.audit import record_action
+from src.workshop0.services.snapshots import bump_state_version
 
 UNDO_WINDOW_SECONDS = 30
 

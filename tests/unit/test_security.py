@@ -1,4 +1,4 @@
-from src.helmsman.security import (
+from src.workshop0.security import (
     admin_key_matches,
     generate_admin_token,
     generate_join_slug,
