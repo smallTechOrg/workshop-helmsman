@@ -326,12 +326,7 @@ Secrets: Secret Manager helmsman-* ─(--set-secrets, runtime SA helmsman-run)�
 | Logging | structlog JSON on stdout is ingested by Cloud Logging; each line also carries `severity` (mapped from `level`) so Cloud Logging colours/filters correctly. |
 | Phase-4 AI on Cloud Run | `OPENROUTER_API_KEY` from Secret Manager; absent/empty secret value ⇒ air-gapped as before. The FTS5 corpus is SQLite-only; the PostgreSQL tsvector variant (agent.md) is what Phase 4 builds in production. |
 
-**Workshop mode (scale control).** `deploy/cloudrun/workshop-mode.sh on|off|status` wraps `gcloud run services update helmsman --region us-central1 --min-instances 1|0 --project ai-agent-boilerplate0`. The deploy workflow's `workflow_dispatch` has an input `min_instances` (`""` = leave unchanged, `0`, `1`); a normal deploy never changes min-instances (omitting the flag preserves the live value). One-liners (also in RUNBOOK):
-
-```bash
-gcloud run services update helmsman --region us-central1 --project ai-agent-boilerplate0 --min-instances 1   # before the workshop
-gcloud run services update helmsman --region us-central1 --project ai-agent-boilerplate0 --min-instances 0   # after
-```
+**Workshop mode (scale control).** `deploy/cloudrun/workshop-mode.sh on|off|status` reads the serving revision (`status.traffic[0].revisionName`), runs `gcloud run services update helmsman --image <serving image> --min-instances 1|0`, then `update-traffic --to-revisions=<new>=100` (traffic is pinned to a named revision, so a bare update would create a 0%-traffic revision); it is a no-op (`EXISTS`) if the serving revision already has the requested value. The deploy workflow's `workflow_dispatch` has an input `min_instances` (`""` = leave unchanged, `0`, `1`); a normal deploy never changes min-instances (omitting the flag preserves the live value).
 
 **Backup / restore.** Cloud SQL automated backups + PITR are an instance-level setting owned by the instance's owner (shared with other apps) — Helmsman does not alter them. Per-database logical backup: `gcloud sql export sql ai-agent-db gs://<bucket>/helmsman-$(date +%F).sql --database=helmsman` (documented in RUNBOOK, requires a bucket the operator owns).
 

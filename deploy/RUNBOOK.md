@@ -38,12 +38,7 @@ bash deploy/cloudrun/workshop-mode.sh off      # min-instances=0 afterwards
 bash deploy/cloudrun/workshop-mode.sh status   # min-instances=<n> max-instances=<n>
 ```
 
-Equivalent one-liners:
-
-```bash
-gcloud run services update helmsman --region us-central1 --project ai-agent-boilerplate0 --min-instances 1
-gcloud run services update helmsman --region us-central1 --project ai-agent-boilerplate0 --min-instances 0
-```
+Traffic is pinned to a named revision, so a plain `gcloud run services update --min-instances` would create a revision serving 0% traffic. The script instead reuses the serving revision's image, applies the new min-instances, and pins 100% traffic to the new revision. `status` reports the serving revision. Use the script rather than a raw `gcloud run services update`.
 
 ### Operations
 
