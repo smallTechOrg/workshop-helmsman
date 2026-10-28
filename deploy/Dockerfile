@@ -35,6 +35,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 COPY src/ ./src/
+# One-off cutover tooling (Cloud Run Job helmsman-import runs scripts/sqlite_to_postgres.py)
+COPY scripts/ ./scripts/
 COPY --from=frontend /build/out ./frontend/out
 # One-off Cloud Run Job helmsman-dbinit runs: python deploy/cloudrun/dbinit.py
 COPY deploy/cloudrun/dbinit.py ./deploy/cloudrun/dbinit.py
