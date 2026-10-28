@@ -106,7 +106,7 @@ workshop-helmsman/                  ← repo root IS the project; all commands r
 │   ├── Dockerfile                  ← multi-stage image (shared by compose + Cloud Run)
 │   ├── entrypoint.sh               ← `migrate` subcommand; boot-time migrations opt-in via HELMSMAN_MIGRATE_ON_BOOT
 │   ├── docker-compose.yml          ← local dev (SQLite) — kept
-│   ├── cloudrun/                   ← Phase 7: provision.sh, dbinit.py, workshop-mode.sh · Phase 8: import-data.sh, domain-map.sh
+│   ├── cloudrun/                   ← Phase 7: provision.sh, dbinit.py · Phase 8: import-data.sh, domain-map.sh
 │   └── RUNBOOK.md                  ← Phase 8: rewritten for Cloud Run (topology, cutover, rollback, VM decommission)
 └── .github/workflows/
     ├── ci.yml                      ← PR/push: tests on a PostgreSQL 17 service container
@@ -326,7 +326,7 @@ Secrets: Secret Manager helmsman-* ─(--set-secrets, runtime SA helmsman-run)�
 | Logging | structlog JSON on stdout is ingested by Cloud Logging; each line also carries `severity` (mapped from `level`) so Cloud Logging colours/filters correctly. |
 | Phase-4 AI on Cloud Run | `OPENROUTER_API_KEY` from Secret Manager; absent/empty secret value ⇒ air-gapped as before. The FTS5 corpus is SQLite-only; the PostgreSQL tsvector variant (agent.md) is what Phase 4 builds in production. |
 
-**Workshop mode (scale control).** `deploy/cloudrun/workshop-mode.sh on|off|status` reads the serving revision (`status.traffic[0].revisionName`), runs `gcloud run services update helmsman --image <serving image> --min-instances 1|0`, then `update-traffic --to-revisions=<new>=100` (traffic is pinned to a named revision, so a bare update would create a 0%-traffic revision); it is a no-op (`EXISTS`) if the serving revision already has the requested value. The deploy workflow's `workflow_dispatch` has an input `min_instances` (`""` = leave unchanged, `0`, `1`); a normal deploy never changes min-instances (omitting the flag preserves the live value).
+**Workshop mode (scale control).** The deploy workflow ends by routing traffic to `LATEST` (`update-traffic --to-latest`, asserted equal to the deployed revision), so the service is not pinned to a named revision and a plain `gcloud run services update helmsman --min-instances 1|0` creates a revision that serves 100% immediately (proven on the live service; a subsequent deploy preserves the value). There is no helper script. After a manual rollback or the rollback guard, traffic is pinned to a named revision; run `update-traffic --to-latest` (or any successful deploy) to resume. The workflow's `workflow_dispatch` input `min_instances` (`""` = leave unchanged, `0`, `1`) can set it; a normal deploy never changes min-instances (omitting the flag preserves the live value).
 
 **Backup / restore.** Cloud SQL automated backups + PITR are an instance-level setting owned by the instance's owner (shared with other apps) — Helmsman does not alter them. Per-database logical backup: `gcloud sql export sql ai-agent-db gs://<bucket>/helmsman-$(date +%F).sql --database=helmsman` (documented in RUNBOOK, requires a bucket the operator owns).
 
@@ -334,7 +334,7 @@ Secrets: Secret Manager helmsman-* ─(--set-secrets, runtime SA helmsman-run)�
 
 **Domain.** `workshop0.smalltech.in` is mapped to the service in Phase 8 (Cloud Run domain mapping, supported in `us-central1`; Google-managed certificate). Until then the `*.run.app` URL is the product URL. DNS is at GoDaddy and is a manual human step (exact records in the Phase 8 section of the roadmap). At cutover the operator sets the GitHub repository variable `HELMSMAN_BASE_URL=https://workshop0.smalltech.in`, which the deploy workflow passes to the service, so share links use the pretty domain even if opened via `run.app`.
 
-**Rollback of the whole migration.** The GCE VM (`helmsman-c`, `asia-south1-c`, static IP `35.200.241.145`) is never modified by any phase; it keeps its own SQLite volume. Reverting production (**not currently serving by name**) = in GoDaddy deleting `CNAME workshop0` and adding `A workshop0 -> 35.200.241.145` (TTL 600), **and** on the VM setting `HELMSMAN_DOMAIN=workshop0.smalltech.in` in `/opt/helmsman/.env` (it holds the old `workshops` name; `HELMSMAN_BASE_URL` derives from it) and recreating the stack from `vm-deploy-final:deploy/docker-compose.prod.yml` so the reverse proxy obtains a certificate for the new name. The VM stays untouched until the user retires it. Data written to Cloud SQL after cutover is not on the VM (its SQLite is stale) and is lost unless exported first (documented in RUNBOOK). Cloud Run resources keep the name `helmsman`.
+**Retired VM.** The GCE VM `helmsman-c`, its disk and the static IP `helmsman-ip` were deleted on 2026-10-29 after a verified backup of its SQLite database; the `DEPLOY_*` GitHub secrets were removed. Rollback of a bad release is Cloud Run revision rollback; data recovery is Cloud SQL export/restore. The old VM deploy path stays in git tag `vm-deploy-final`. Cloud Run resources keep the name `helmsman`.
 
 ## Key architectural decisions (summary)
 
