@@ -82,6 +82,8 @@ DATABASE_URL="$TEST_DATABASE_URL" uv run python -m src
 
 # ... and the suite in another (from the repo root)
 pnpm exec playwright test tests/e2e --reporter=line
+# target a deployed origin instead of localhost:8001 (no local server needed):
+# BASE_URL=https://your-host pnpm exec playwright test tests/e2e --reporter=line
 ```
 
 ## Run with Docker (local dev)

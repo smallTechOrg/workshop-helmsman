@@ -13,7 +13,7 @@ bash deploy/cloudrun/provision.sh --dry-run    # preview
 bash deploy/cloudrun/provision.sh              # prints CREATED <thing> / EXISTS <thing>; safe to re-run
 ```
 
-It enables the APIs, creates the Artifact Registry repo, service accounts, the keyless GitHub WIF provider, the database/user, the `helmsman-*` secrets and their per-secret IAM, and the public-invoker binding. It may prompt once (no echo) for the shared instance's `postgres` password to grant schema privileges; that password is never stored. An existing secret is never overwritten unless you pass `--rotate <name>`.
+It enables the APIs, creates the Artifact Registry repo, service accounts, the keyless GitHub WIF provider, the database/user, the `helmsman-*` secrets and their per-secret IAM, and the public-invoker binding. It never prompts: the `helmsman-dbinit` Cloud Run job creates the database as `helmsman_app`, so no `postgres` password is needed. An existing secret is never overwritten unless you pass `--rotate <name>`.
 
 ### Deploying
 

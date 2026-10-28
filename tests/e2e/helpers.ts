@@ -2,8 +2,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { expect, type Locator, type Page } from '@playwright/test';
 
-/** Single origin (architecture.md §Process model): one uvicorn worker on :8001. */
-export const ORIGIN = 'http://localhost:8001';
+/**
+ * Single origin (architecture.md §Process model). Defaults to the local uvicorn
+ * worker on :8001; set `BASE_URL` to target a deployed origin instead.
+ */
+export const ORIGIN = (process.env.BASE_URL || 'http://localhost:8001').replace(/\/+$/, '');
 /** Canonical app base — the built Next.js export mounted by FastAPI. */
 export const APP_BASE = `${ORIGIN}/app`;
 /**
@@ -120,18 +123,44 @@ export async function fillComposer(
   const composer = page.getByTestId('composer');
   await expect(composer).toBeVisible();
 
-  await page.getByTestId('workshop-name-input').fill(name);
+  // Wait until React has attached to the input (hydration done) BEFORE typing,
+  // otherwise hydration resets the value; then verify (retry) the typed value.
+  const nameInput = page.getByTestId('workshop-name-input');
+  await nameInput.waitFor({ state: 'visible' });
+  await expect
+    .poll(
+      () => nameInput.evaluate((el) => Object.keys(el).some((k) => k.startsWith('__reactProps'))),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+  await expect(async () => {
+    await nameInput.fill(name);
+    await expect(nameInput).toHaveValue(name, { timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
 
   const titleInputs = page.getByTestId('milestone-title-input');
-  for (let i = 0; i < milestones.length + 2 && (await titleInputs.count()) < milestones.length; i += 1) {
-    await page.getByTestId('add-milestone-button').click();
+  // A click before React hydrates is silently lost, so retry: click, then wait
+  // briefly for the row count to grow; repeat until the target count is reached.
+  const addButton = page.getByTestId('add-milestone-button');
+  await expect(addButton).toBeVisible();
+  const deadline = Date.now() + 30_000;
+  while ((await titleInputs.count()) < milestones.length) {
+    if (Date.now() > deadline) break;
+    const before = await titleInputs.count();
+    await addButton.click();
+    await expect
+      .poll(async () => titleInputs.count(), { timeout: 1_500 })
+      .toBeGreaterThan(before)
+      .catch(() => undefined);
   }
   await expect(titleInputs).toHaveCount(milestones.length);
 
   const contentInputs = page.getByTestId('milestone-content-input');
   for (const [i, m] of milestones.entries()) {
     await titleInputs.nth(i).fill(m.title);
+    await expect(titleInputs.nth(i)).toHaveValue(m.title);
     await contentInputs.nth(i).fill(m.content);
+    await expect(contentInputs.nth(i)).toHaveValue(m.content);
   }
 }
 
@@ -149,13 +178,20 @@ export async function submitPublicCreate(page: Page, email: string): Promise<voi
   }
   await expect(emailInput).toBeVisible();
   await emailInput.fill(email);
+  await expect(emailInput).toHaveValue(email);
   await page.getByTestId('create-submit').click();
 }
 
 /** Sign in at the relocated admin console (`/app/admin/`) with the real key. */
 export async function signInAdmin(page: Page): Promise<void> {
   await page.goto(`${ADMIN_BASE}/`);
-  await page.getByTestId('admin-key-input').fill(adminKey());
+  const keyInput = page.getByTestId('admin-key-input');
+  await expect
+    .poll(() => keyInput.evaluate((el) => Object.keys(el).some((k) => k.startsWith('__reactProps'))), {
+      timeout: 30_000,
+    })
+    .toBe(true);
+  await keyInput.fill(adminKey());
   await page.getByTestId('admin-key-submit').click();
   await expect(page.getByTestId('new-workshop-button')).toBeVisible({ timeout: 15_000 });
 }
