@@ -1,6 +1,6 @@
 # Data Model — Workshop Helmsman (v0.2)
 
-SQLAlchemy 2.x declarative models in `src/helmsman/db/models.py`; schema managed by Alembic (the `0001_initial` migration creates the **full v0.2 schema below**, even though later phases activate some tables). All state lives here — never only in process memory (resilience rule). All `DateTime` columns are timezone-aware UTC. JSON payloads are stored as `Text` (portable across SQLite/PostgreSQL).
+SQLAlchemy 2.x declarative models in `src/helmsman/db/models.py`; schema managed by Alembic (the `0001_initial` migration creates the **full v0.2 schema below**, even though later phases activate some tables). All state lives here — never only in process memory (resilience rule). All `DateTime` columns are timezone-aware UTC. JSON payloads are stored as `Text` (portable across SQLite/PostgreSQL). **Production engine is PostgreSQL 17 (Phase 7+)**; SQLite remains the local-dev default. Integer primary keys are identity/serial columns on PostgreSQL — any bulk load that inserts explicit ids (the Phase-8 import) must reset each table's sequence to `max(id)`.
 
 **Phase activation:** the "Phase" column says when the app first *writes/uses* the field — the schema itself exists from Phase 1 so later phases never migrate-and-backfill mid-season.
 
@@ -80,7 +80,7 @@ Indexes: ix(workshop_id, position).
 | token | String(32) | not null, **unique, indexed** | 1 | `token_urlsafe(16)` — personal link + cookie value |
 | answers_json | Text | not null, default `'{}'` | 3 | Custom join-form answers `{field_key: value}` |
 | joined_at | DateTime | not null | 1 | |
-| last_seen_at | DateTime | not null | 1 (write), 2 (read) | Touched by polls, throttled to once/60s; feeds presence + stuck alerts |
+| last_seen_at | DateTime | not null | 1 (write), 2 (read) | Touched by polls via a DB-side conditional UPDATE (`… WHERE last_seen_at < now − 60 s`), so ≤1 effective write/60 s per participant across all instances; feeds presence + stuck alerts |
 
 Indexes: unique(token), ix(workshop_id).
 
@@ -221,7 +221,7 @@ Indexes: ix(workshop_id, created_at).
 
 ---
 
-## help_corpus (Phase 4 — SQLite FTS5 virtual table)
+## help_corpus (Phase 4 — SQLite FTS5 virtual table locally; PostgreSQL tsvector table in production)
 
 The cross-workshop learning corpus for similarity retrieval (see agent.md). **Not** a SQLAlchemy model — created by an Alembic migration guarded by `dialect == "sqlite"`; maintained by application code (no triggers), rebuildable at any time from `help_request` + `help_answer` (it is derived data, so the resilience rule holds).
 
@@ -271,6 +271,6 @@ Bump `workshop.state_version` (same transaction) on: participant join, completio
 ## Indexing strategy for 300-participant polling
 
 - Poll hot path: single point-read of `workshop` by unique token (admin_token/join_slug) or `participant` by unique token → covered by the unique indexes.
-- Snapshot build (per version change, coalesced): `milestone_completion` GROUP BY milestone_id filtered via ix(milestone_id) join on workshop's milestones; leaderboard from ix(workshop_id) participants + their completion counts; help queue via ix(workshop_id, status, created_at).
+- Snapshot build (per changed poll; not memoized since Phase 7 — see architecture.md REVISIT-IF note): `milestone_completion` GROUP BY milestone_id filtered via ix(milestone_id) join on workshop's milestones; leaderboard from ix(workshop_id) participants + their completion counts; help queue via ix(workshop_id, status, created_at).
 - "Me" section per poll: unique(token) point-read + ix(participant_id) on completions + ix(participant_id) on help_requests — 2–3 sub-ms indexed queries.
 - No composite index tuning beyond the above is warranted at ≤1000 rows/table/session scale; the unique constraints double as the lookup indexes.

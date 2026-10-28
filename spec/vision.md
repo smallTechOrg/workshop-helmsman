@@ -21,7 +21,7 @@ Workshops are created fresh per session — from scratch or from a persistent **
 
 - **First-time-right.** Every phase's tested path works the first time the user tests it. Zero rough edges on the tested path; stubs for future features are clearly labelled and never read as bugs.
 - **Resilient by construction.** All state lives in the database, never only in memory. A participant who reconnects gets their exact state back. A server restart mid-session loses nothing — every client recovers on its next poll with no user action.
-- **Live at scale on modest hardware.** 300+ concurrent participants on a 2 vCPU / 2–4 GB VM, near-zero running cost (see [architecture.md](architecture.md) for the coalesced-polling design that achieves this).
+- **Live at scale on modest hardware.** 300+ concurrent participants on small, cheap infrastructure (a scale-to-zero container service and a shared small database from Phase 7; originally one 2 vCPU VM), near-zero running cost (see [architecture.md](architecture.md) for the versioned-polling design that achieves this).
 - **Visually excellent.** A modern, polished UI with a consistent design system — this is the product's face to external participants. Every view designs its empty, loading, error, and populated states.
 - **Honest AI.** AI answers are always badged as AI, always escapable to a human, always audited with the exact context the AI used, and always costed (per-workshop spend visible).
 
@@ -35,8 +35,8 @@ Workshops are created fresh per session — from scratch or from a persistent **
 - **No WebSockets/SSE** — live updates are versioned coalesced polling (a deliberate architecture decision, see architecture.md).
 - **No dark mode in v0.2** — one polished light theme; design tokens are structured so dark mode can be added later without rework.
 - **No health/ops chrome in the UI** — a plain `/api/health` endpoint exists for machines; the UI stays clean.
-- **No vector database** — help-request similarity uses SQLite FTS5 keyword search (see [agent.md](agent.md)).
+- **No vector database** — help-request similarity uses database full-text keyword search (PostgreSQL tsvector in production, SQLite FTS5 locally; see [agent.md](agent.md)).
 
 ## The one-line test
 
-A facilitator with a fresh VM can go from `docker compose up` (or `uv run python -m src`) to a live workshop with 300 external participants tracking milestones and getting help — without reading anything beyond the join link they share.
+A facilitator can go from `docker compose up` (or `uv run python -m src`) locally, or from the public production URL, to a live workshop with 300 external participants tracking milestones and getting help — without reading anything beyond the join link they share.
