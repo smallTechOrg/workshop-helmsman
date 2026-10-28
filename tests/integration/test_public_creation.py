@@ -224,10 +224,10 @@ def test_creator_email_never_leaks_to_facilitator_or_participant_surfaces(
 # --- migration 0004 ---------------------------------------------------------
 
 
-def test_migration_0004_adds_the_columns_and_backfills_existing_rows(monkeypatch, tmp_path):
+def test_migration_0004_adds_the_columns_and_backfills_existing_rows(monkeypatch, scratch_database):
     """Upgrade to 0003, insert a pre-Phase-6 row, then upgrade to 0004."""
-    db_path = tmp_path / "public-creation-migration.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+    db_url = scratch_database()
+    monkeypatch.setenv("DATABASE_URL", db_url)
     import src.helmsman.config.settings as settings_module
     from src.helmsman.db.session import reset_db_state
 
@@ -237,7 +237,7 @@ def test_migration_0004_adds_the_columns_and_backfills_existing_rows(monkeypatch
     config = Config(str(REPO_ROOT / "alembic.ini"))
     command.upgrade(config, "0003")
 
-    engine = create_engine(f"sqlite:///{db_path}")
+    engine = create_engine(db_url)
     try:
         with engine.begin() as connection:
             assert "creator_email" not in {
@@ -248,7 +248,7 @@ def test_migration_0004_adds_the_columns_and_backfills_existing_rows(monkeypatch
                     "INSERT INTO workshop (name, description_md, admin_token, join_slug, status,"
                     " grace_hours, paused, state_version, content_version, ai_enabled,"
                     " join_form_json, stuck_minutes, created_at, updated_at)"
-                    " VALUES ('Legacy', '', 'legacy-token', 'legacyslg', 'live', 24, 0, 0, 0, 0,"
+                    " VALUES ('Legacy', '', 'legacy-token', 'legacyslg', 'live', 24, FALSE, 0, 0, FALSE,"
                     " '[]', 10, '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
                 )
             )
@@ -257,7 +257,7 @@ def test_migration_0004_adds_the_columns_and_backfills_existing_rows(monkeypatch
 
     command.upgrade(config, "head")
 
-    engine = create_engine(f"sqlite:///{db_path}")
+    engine = create_engine(db_url)
     try:
         columns = {c["name"]: c for c in inspect(engine).get_columns("workshop")}
         assert columns["creator_email"]["nullable"] is True

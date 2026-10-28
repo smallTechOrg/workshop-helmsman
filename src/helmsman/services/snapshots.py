@@ -1,16 +1,8 @@
-"""Versioned poll-payload builders + the in-process snapshot memo cache.
-
-The changed-payload for a given (kind, workshop_id, state_version) is built once and
-shared by every poller at that version (coalescing). A short TTL is the safety net for
-data that changes without a version bump (e.g. throttled last_seen_at touches).
-Single-worker process model makes this cache correct without external infrastructure.
-"""
+"""Versioned poll-payload builders (stateless: no per-process cache)."""
 
 import json
-import time
 from datetime import datetime, timedelta, timezone
 from statistics import median
-from typing import Callable
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -28,30 +20,13 @@ from src.helmsman.db.models import (
 from src.helmsman.services.intelligence import compute_bottleneck, compute_pulse, compute_stuck
 from src.helmsman.services.milestone_input import load_input_config
 
-SNAPSHOT_TTL_SECONDS = 2.0
 ACTIVE_WINDOW_SECONDS = 300
 RESOLVED_QUEUE_LIMIT = 50
 
-_cache: dict[tuple, tuple[float, dict]] = {}
-
-_monotonic = time.monotonic  # module-level indirection so tests can inject a clock
-
-
-def clear_snapshot_cache() -> None:
-    _cache.clear()
-
-
-def _memoized(key: tuple, builder: Callable[[], dict]) -> dict:
-    now = _monotonic()
-    hit = _cache.get(key)
-    if hit is not None and now - hit[0] < SNAPSHOT_TTL_SECONDS:
-        return hit[1]
-    value = builder()
-    expired = [k for k, (built_at, _) in _cache.items() if now - built_at >= SNAPSHOT_TTL_SECONDS]
-    for stale_key in expired:
-        _cache.pop(stale_key, None)
-    _cache[key] = (now, value)
-    return value
+# Snapshots are built fresh on every changed poll; there is no in-process memo, so any
+# number of stateless instances serve identical, current data. The unchanged-poll fast
+# path (`v == state_version` -> changed:false) is what keeps polling cheap.
+# revisit if load testing shows snapshot build is a bottleneck; key was (workshop_id, state_version)
 
 
 # --- version counters (bumped in the SAME transaction as the triggering write) ---
@@ -389,8 +364,7 @@ def _build_alerts_and_pulse(
 
 
 def dashboard_snapshot(session: Session, workshop: Workshop, base_url: str) -> dict:
-    key = ("dashboard", workshop.id, workshop.state_version, base_url)
-    return _memoized(key, lambda: _build_dashboard(session, workshop, base_url))
+    return _build_dashboard(session, workshop, base_url)
 
 
 def _build_dashboard(session: Session, workshop: Workshop, base_url: str) -> dict:
@@ -524,8 +498,7 @@ def _build_dashboard(session: Session, workshop: Workshop, base_url: str) -> dic
 
 
 def participant_shared_snapshot(session: Session, workshop: Workshop) -> dict:
-    key = ("participant", workshop.id, workshop.state_version)
-    return _memoized(key, lambda: _build_participant_shared(session, workshop))
+    return _build_participant_shared(session, workshop)
 
 
 def _build_participant_shared(session: Session, workshop: Workshop) -> dict:

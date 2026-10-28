@@ -69,3 +69,46 @@ def test_missing_openrouter_key_is_never_an_error(monkeypatch):
 
     app = create_app()
     assert app is not None
+
+
+@pytest.mark.parametrize("prefix", ["postgres://", "postgresql://"])
+def test_postgres_url_normalised_to_psycopg(monkeypatch, prefix):
+    monkeypatch.setenv("DATABASE_URL", f"{prefix}u@h:5432/db?sslmode=require")
+    from src.helmsman.config.settings import Settings
+
+    assert (
+        Settings(_env_file=None).database_url
+        == "postgresql+psycopg://u@h:5432/db?sslmode=require"
+    )
+
+
+def test_explicit_driver_and_sqlite_urls_untouched(monkeypatch):
+    from src.helmsman.config.settings import Settings
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u@h/db")
+    assert Settings(_env_file=None).database_url == "postgresql+psycopg://u@h/db"
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///x.db")
+    assert Settings(_env_file=None).database_url == "sqlite:///x.db"
+
+
+def test_pool_defaults_and_overrides(monkeypatch):
+    from src.helmsman.config.settings import Settings
+
+    monkeypatch.delenv("HELMSMAN_DB_POOL_SIZE", raising=False)
+    monkeypatch.delenv("HELMSMAN_DB_MAX_OVERFLOW", raising=False)
+    s = Settings(_env_file=None)
+    assert (s.helmsman_db_pool_size, s.helmsman_db_max_overflow) == (3, 2)
+    monkeypatch.setenv("HELMSMAN_DB_POOL_SIZE", "5")
+    monkeypatch.setenv("HELMSMAN_DB_MAX_OVERFLOW", "7")
+    s = Settings(_env_file=None)
+    assert (s.helmsman_db_pool_size, s.helmsman_db_max_overflow) == (5, 7)
+
+
+def test_invalid_pool_size_rejected(monkeypatch):
+    from pydantic import ValidationError
+
+    from src.helmsman.config.settings import Settings
+
+    monkeypatch.setenv("HELMSMAN_DB_POOL_SIZE", "lots")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

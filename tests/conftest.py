@@ -1,29 +1,121 @@
-"""Shared fixtures: isolated SQLite FILE per test (production driver), fresh app,
-settings/engine/cache singletons reset around every test.
+"""Shared fixtures: every test runs against a real PostgreSQL database (harness Rule 5).
+
+`TEST_DATABASE_URL` is REQUIRED (see README "Postgres test setup") and its database
+name must end in `_test` — the suite drops/recreates schema `public` there. There is
+no SQLite fallback. Schema is built once per session by `alembic upgrade head`; every
+test starts from empty tables (TRUNCATE ... RESTART IDENTITY CASCADE).
 
 TEST_ADMIN_KEY is a fixture value owned by this suite (set via env for each test) —
 never the operator's real HELMSMAN_ADMIN_KEY from .env.
 """
 
+import os
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 TEST_ADMIN_KEY = "test-admin-key-0123456789"
+
+
+def _require_test_database_url() -> str:
+    url = os.environ.get("TEST_DATABASE_URL", "").strip()
+    if not url:
+        pytest.exit(
+            "TEST_DATABASE_URL is not set. The suite runs on PostgreSQL only (no SQLite "
+            "fallback). See README.md 'Postgres test setup': createdb helmsman_test && "
+            'export TEST_DATABASE_URL="postgresql+psycopg://$USER@localhost:5432/helmsman_test"',
+            returncode=4,
+        )
+    parsed = make_url(url)
+    if not parsed.drivername.startswith("postgresql"):
+        pytest.exit(
+            f"TEST_DATABASE_URL must be a PostgreSQL URL (got driver {parsed.drivername!r}). "
+            "See README.md 'Postgres test setup'.",
+            returncode=4,
+        )
+    if not (parsed.database or "").endswith("_test"):
+        pytest.exit(
+            f"Refusing to run: TEST_DATABASE_URL database {parsed.database!r} does not end "
+            "in '_test' (the suite drops schema public). See README.md 'Postgres test setup'.",
+            returncode=4,
+        )
+    return url
+
+
+@pytest.fixture(scope="session")
+def test_database_url() -> str:
+    return _require_test_database_url()
 
 
 def _reset_singletons() -> None:
     import src.helmsman.config.settings as settings_module
     from src.helmsman.db.session import reset_db_state
-    from src.helmsman.services.snapshots import clear_snapshot_cache
 
     settings_module._settings = None
     reset_db_state()
-    clear_snapshot_cache()
+
+
+def alembic_upgrade(url: str, revision: str = "head") -> None:
+    """Run alembic against `url` (env.py reads DATABASE_URL via settings)."""
+    _alembic_run("upgrade", url, revision)
+
+
+def alembic_downgrade(url: str, revision: str = "base") -> None:
+    _alembic_run("downgrade", url, revision)
+
+
+def _alembic_run(action: str, url: str, revision: str) -> None:
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+
+    import src.helmsman.config.settings as settings_module
+
+    root = Path(__file__).resolve().parents[1]
+    previous = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = url
+    settings_module._settings = None
+    try:
+        getattr(command, action)(Config(str(root / "alembic.ini")), revision)
+    finally:
+        if previous is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = previous
+        settings_module._settings = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _schema(test_database_url):
+    """Drop + recreate schema public, then `alembic upgrade head` — once per session."""
+    engine = create_engine(test_database_url, isolation_level="AUTOCOMMIT")
+    with engine.connect() as connection:
+        connection.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        connection.execute(text("CREATE SCHEMA public"))
+    engine.dispose()
+    alembic_upgrade(test_database_url)
+    yield
+
+
+@pytest.fixture(scope="session")
+def _truncate_engine(test_database_url):
+    engine = create_engine(test_database_url)
+    yield engine
+    engine.dispose()
 
 
 @pytest.fixture(autouse=True)
-def _isolated_env(monkeypatch, tmp_path):
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/helmsman-test.db")
+def _isolated_env(monkeypatch, test_database_url, _schema, _truncate_engine):
+    from src.helmsman.db.models import Base
+
+    tables = ", ".join(f'"{name}"' for name in Base.metadata.tables)
+    with _truncate_engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+    monkeypatch.setenv("DATABASE_URL", test_database_url)
     monkeypatch.setenv("HELMSMAN_ADMIN_KEY", TEST_ADMIN_KEY)
     monkeypatch.setenv("HELMSMAN_BASE_URL", "")
     monkeypatch.setenv("HELMSMAN_LOG_LEVEL", "WARNING")
@@ -33,15 +125,37 @@ def _isolated_env(monkeypatch, tmp_path):
 
 
 @pytest.fixture
+def scratch_database(test_database_url):
+    """Factory: create an empty `<name>_mig_<uuid>` database on the same server; dropped at teardown."""
+    created: list[str] = []
+    base = make_url(test_database_url)
+    admin = create_engine(base.set(database="postgres"), isolation_level="AUTOCOMMIT")
+
+    def _create() -> str:
+        name = f"{base.database}_mig_{uuid.uuid4().hex[:8]}"
+        with admin.connect() as connection:
+            connection.execute(text(f'CREATE DATABASE "{name}"'))
+        created.append(name)
+        return base.set(database=name).render_as_string(hide_password=False)
+
+    yield _create
+    import src.helmsman.config.settings as settings_module
+    from src.helmsman.db.session import reset_db_state
+
+    settings_module._settings = None
+    reset_db_state()
+    with admin.connect() as connection:
+        for name in created:
+            connection.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+    admin.dispose()
+
+
+@pytest.fixture
 def make_app():
-    """Build a fresh app over the CURRENT env (schema created once per DB file)."""
+    """Build a fresh app over the CURRENT env (schema comes from alembic, once per session)."""
 
     def _make():
         from src.helmsman.api import create_app
-        from src.helmsman.db.models import Base
-        from src.helmsman.db.session import get_engine
-
-        Base.metadata.create_all(get_engine())
         return create_app()
 
     return _make

@@ -6,7 +6,7 @@ from datetime import timedelta
 import structlog
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from src.helmsman.services.join_form import JoinFormError, validate_answers
@@ -235,10 +235,22 @@ def join_workshop(
 # --- tracker polling ---
 
 
-def _touch_last_seen(participant: Participant) -> None:
+def _touch_last_seen(session: Session, participant_id: int) -> bool:
+    """Single conditional UPDATE: advances last_seen_at only if it is older than the
+    throttle window. App-side UTC `now` is bound as a parameter (portable across
+    SQLite/PostgreSQL); no read-then-write, so concurrent pollers on any instance
+    produce exactly one effective update. Returns True if a row was updated."""
     now = utcnow()
-    if (now - as_utc(participant.last_seen_at)) >= timedelta(seconds=LAST_SEEN_TOUCH_SECONDS):
-        participant.last_seen_at = now
+    result = session.execute(
+        update(Participant)
+        .where(
+            Participant.id == participant_id,
+            Participant.last_seen_at < now - timedelta(seconds=LAST_SEEN_TOUCH_SECONDS),
+        )
+        .values(last_seen_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount == 1
 
 
 @router.get("/p/{participant_token}/state")
@@ -248,7 +260,7 @@ def poll_state(
     session: Session = Depends(get_session),
 ) -> dict:
     participant, workshop = participant_by_token(session, participant_token)
-    _touch_last_seen(participant)
+    _touch_last_seen(session, participant.id)
 
     if v == workshop.state_version:
         return ok(

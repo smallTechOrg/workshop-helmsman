@@ -14,6 +14,8 @@ def main() -> None:
         port=settings.port,
         log_level=settings.resolved_log_level.lower(),
         access_log=False,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
     )
 
 
