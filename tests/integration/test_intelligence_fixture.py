@@ -9,7 +9,6 @@ from sqlalchemy import select, update
 from src.helmsman.api._common import utcnow
 from src.helmsman.db.models import MilestoneCompletion, Participant
 from src.helmsman.db.session import create_db_session
-from src.helmsman.services.snapshots import clear_snapshot_cache
 
 FOUR_MILESTONES_BODY = {
     "name": "Big Workshop",
@@ -97,7 +96,6 @@ def test_forty_participant_fixture_produces_expected_alerts_and_pulse(
             .values(completed_at=now - timedelta(minutes=25))
         )
 
-    clear_snapshot_cache()
 
     # 2 open help requests, to check pulse.open_help_count
     help_browser = make_client()
@@ -107,7 +105,6 @@ def test_forty_participant_fixture_produces_expected_alerts_and_pulse(
     help_browser.post(f"/api/p/{help_joined['participant_token']}/help", json={"message": "stuck 1"})
     help_browser.post(f"/api/p/{help_joined['participant_token']}/help", json={"message": "stuck 2"})
 
-    clear_snapshot_cache()
     dashboard = client.get(f"/api/f/{admin_token}/dashboard?v=-1").json()["data"]
 
     assert dashboard["stats"]["participant_count"] == 41  # 17 + 20 + 3 + 1 helper

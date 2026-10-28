@@ -43,7 +43,18 @@ def get_engine() -> Engine:
         if url.startswith("sqlite"):
             _ensure_sqlite_parent_dir(url)
             connect_args["check_same_thread"] = False
-        _engine = create_engine(url, pool_pre_ping=True, connect_args=connect_args)
+        if url.startswith("sqlite"):
+            _engine = create_engine(url, pool_pre_ping=True, connect_args=connect_args)
+        else:
+            settings = get_settings()
+            _engine = create_engine(
+                url,
+                pool_size=settings.helmsman_db_pool_size,
+                max_overflow=settings.helmsman_db_max_overflow,
+                pool_timeout=10,
+                pool_recycle=1800,
+                pool_pre_ping=True,
+            )
         if url.startswith("sqlite"):
             event.listen(_engine, "connect", _apply_sqlite_pragmas)
     return _engine

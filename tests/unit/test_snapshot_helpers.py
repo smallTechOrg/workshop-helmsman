@@ -1,9 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from src.helmsman.services import snapshots
 from src.helmsman.services.snapshots import (
     build_distribution,
-    clear_snapshot_cache,
     median_progress_pct,
     progress_pct,
     rank_participants,
@@ -75,38 +73,8 @@ def test_rank_has_no_tie_sharing():
     assert [e["rank"] for e in ranked] == [1, 2]
 
 
-def test_memo_cache_returns_same_object_within_ttl():
-    clear_snapshot_cache()
-    builds = []
-    result_a = snapshots._memoized(("k", 1), lambda: builds.append(1) or {"n": len(builds)})
-    result_b = snapshots._memoized(("k", 1), lambda: builds.append(1) or {"n": len(builds)})
-    assert result_a is result_b
-    assert len(builds) == 1
+def test_snapshot_cache_machinery_is_gone():
+    from src.helmsman.services import snapshots
 
-
-def test_memo_cache_rebuilds_after_ttl(monkeypatch):
-    clear_snapshot_cache()
-    fake_now = [100.0]
-    monkeypatch.setattr(snapshots, "_monotonic", lambda: fake_now[0])
-    snapshots._memoized(("k", 2), lambda: {"first": True})
-    fake_now[0] += snapshots.SNAPSHOT_TTL_SECONDS + 0.1
-    rebuilt = snapshots._memoized(("k", 2), lambda: {"second": True})
-    assert rebuilt == {"second": True}
-
-
-def test_memo_cache_prunes_expired_entries(monkeypatch):
-    clear_snapshot_cache()
-    fake_now = [100.0]
-    monkeypatch.setattr(snapshots, "_monotonic", lambda: fake_now[0])
-    snapshots._memoized(("old", 1), lambda: {"v": 1})
-    fake_now[0] += snapshots.SNAPSHOT_TTL_SECONDS + 0.1
-    snapshots._memoized(("new", 1), lambda: {"v": 2})
-    assert ("old", 1) not in snapshots._cache
-    assert ("new", 1) in snapshots._cache
-
-
-def test_memo_cache_distinct_keys_build_separately():
-    clear_snapshot_cache()
-    a = snapshots._memoized(("k", 1), lambda: {"v": 1})
-    b = snapshots._memoized(("k", 2), lambda: {"v": 2})
-    assert a != b
+    for name in ("_cache", "_memoized", "clear_snapshot_cache", "SNAPSHOT_TTL_SECONDS", "_monotonic"):
+        assert not hasattr(snapshots, name), name

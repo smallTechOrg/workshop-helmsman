@@ -22,7 +22,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PROJECT_ENVIRONMENT=/srv/helmsman/.venv \
     UV_CACHE_DIR=/srv/helmsman/.cache/uv \
     HOME=/srv/helmsman \
-    PORT=8001 \
+    PATH=/srv/helmsman/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1
 WORKDIR /srv/helmsman
 
@@ -35,7 +35,11 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 COPY src/ ./src/
+# One-off cutover tooling (Cloud Run Job helmsman-import runs scripts/sqlite_to_postgres.py)
+COPY scripts/ ./scripts/
 COPY --from=frontend /build/out ./frontend/out
+# One-off Cloud Run Job helmsman-dbinit runs: python deploy/cloudrun/dbinit.py
+COPY deploy/cloudrun/dbinit.py ./deploy/cloudrun/dbinit.py
 COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
@@ -43,6 +47,9 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 RUN useradd --system --uid 10001 helmsman && chown -R helmsman:helmsman /srv/helmsman
 USER helmsman
 
+# Listens on $PORT (Cloud Run injects 8080); defaults to 8001 when unset.
 EXPOSE 8001
-# Migrations run on boot inside the entrypoint (idempotent).
+# `entrypoint.sh` serves (running migrations first only if
+# HELMSMAN_MIGRATE_ON_BOOT is 1/true, the default); `entrypoint.sh migrate`
+# runs `alembic upgrade head` and exits (the Cloud Run migrate job).
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

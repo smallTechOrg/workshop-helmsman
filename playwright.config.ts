@@ -10,6 +10,10 @@ import { defineConfig, devices } from '@playwright/test';
  * Poll intervals are 2 s (dashboard) / 3 s (tracker); the 12 s expect timeout
  * covers every "within one poll" assertion without fixed sleeps.
  */
+// BASE_URL selects the origin under test (default: local app on :8001). No
+// webServer is ever started — the app (local or remote) must already be running.
+const ORIGIN = (process.env.BASE_URL || 'http://localhost:8001').replace(/\/+$/, '');
+
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 90_000,
@@ -20,7 +24,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   reporter: 'line',
   use: {
-    baseURL: 'http://localhost:8001/app',
+    baseURL: `${ORIGIN}/app`,
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
     // No traces/videos: a failure trace would persist the X-Admin-Key request

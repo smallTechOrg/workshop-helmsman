@@ -1,6 +1,6 @@
 """Application settings — exact env var names per spec/architecture.md §Environment variables."""
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_DATABASE_URL = "sqlite:///data/helmsman.db"
@@ -10,6 +10,15 @@ _LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 def _strip_inline_comment(value: str) -> str:
     return value.split("#", 1)[0].strip()
+
+
+def normalize_database_url(url: str) -> str:
+    """Route bare postgres:// / postgresql:// URLs to the psycopg 3 driver."""
+    url = url.strip()
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix) :]
+    return url
 
 
 class Settings(BaseSettings):
@@ -22,12 +31,19 @@ class Settings(BaseSettings):
 
     database_url: str = Field(default=DEFAULT_DATABASE_URL)
     port: int = Field(default=DEFAULT_PORT)
+    helmsman_db_pool_size: int = Field(default=3)
+    helmsman_db_max_overflow: int = Field(default=2)
     helmsman_admin_key: str = Field(default="")
     helmsman_base_url: str = Field(default="")
     helmsman_log_level: str = Field(default="INFO")
     openrouter_api_key: str = Field(default="")
     helmsman_ai_model: str = Field(default="anthropic/claude-sonnet-4-6")
     helmsman_ai_confidence: float = Field(default=0.75)
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_database_url(cls, value: str) -> str:
+        return normalize_database_url(value)
 
     @property
     def resolved_admin_key(self) -> str:

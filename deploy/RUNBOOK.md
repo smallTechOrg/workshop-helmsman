@@ -1,165 +1,177 @@
-# Deploy Runbook — Workshop Helmsman → workshops.smalltech.in
+# Deploy Runbook — Workshop Helmsman (Cloud Run)
 
-Production is a single GCP VM running Docker Compose: the **app** container
-(FastAPI serving the built Next.js frontend) behind a **Caddy** container that
-terminates TLS with an automatic Let's Encrypt certificate.
+Workshop Helmsman runs on **Cloud Run + Cloud SQL**. Architecture detail: `spec/architecture.md` §Production topology. All commands run from the repo root unless stated otherwise; the operator is authenticated with `gcloud auth login` and `gh auth login`. Never paste or echo secret values.
+
+## Topology
 
 ```
-Internet ──443──▶ Caddy (TLS for workshops.smalltech.in) ──▶ app:8001
-                                                              └▶ /srv/helmsman/data (SQLite, volume)
+GitHub Actions (keyless, Workload Identity Federation)
+  test (postgres:17) ─▶ build image ─▶ Artifact Registry us-central1/helmsman
+     ─▶ Cloud Run Job helmsman-migrate (alembic upgrade head)
+     ─▶ Cloud Run service helmsman: new revision --no-traffic (tag candidate)
+     ─▶ health check ─▶ shift 100% ─▶ health check ─▶ (any failure => restore previous revision)
+
+Browser ─HTTPS─▶ Cloud Run service helmsman (project ai-agent-boilerplate0, us-central1, 0-3 instances)
+                    │  private VPC egress, TLS
+                    ▼
+                 Cloud SQL PostgreSQL instance ai-agent-db (shared) ─ database helmsman, user helmsman_app
+Secrets (Secret Manager): helmsman-database-url, helmsman-openrouter-api-key, helmsman-admin-key
+Public URL: https://workshop0.smalltech.in (domain mapping -> ghs.googlehosted.com) and the *.run.app URL
 ```
 
-Two ways to ship:
-- **Manual** (§1–§5): build/run on the VM directly. Enough to go live today.
-- **Automated** (§6): push to `main` → GitHub Actions builds, pushes to GHCR, and
-  rolls the VM. Set up once, then every merge deploys.
+One uvicorn process per container serves `/api/*` and the built frontend. Instances are stateless; the database is the only shared state.
 
----
-
-## 1. Provision the VM (GCP)
+## One-time provisioning (idempotent)
 
 ```bash
-gcloud compute instances create helmsman \
-  --project=YOUR_PROJECT --zone=asia-south1-a \
-  --machine-type=e2-small \
-  --image-family=debian-12 --image-project=debian-cloud \
-  --boot-disk-size=20GB \
-  --tags=http-server,https-server
-
-# Allow 80/443 (skip any that already exist on the network)
-gcloud compute firewall-rules create allow-http  --allow=tcp:80  --target-tags=http-server
-gcloud compute firewall-rules create allow-https --allow=tcp:443 --target-tags=https-server
+# HELMSMAN_ADMIN_KEY / OPENROUTER_API_KEY are read from the environment or .env (never echoed)
+bash deploy/cloudrun/provision.sh --dry-run    # preview
+bash deploy/cloudrun/provision.sh              # prints CREATED <thing> / EXISTS <thing>; safe to re-run
 ```
 
-`e2-small` (2 vCPU / 2 GB) is the floor for ~150 concurrent participants. Step up
-to `e2-medium` (4 GB) for the 300+ target. A static external IP is recommended so
-DNS never breaks:
+It enables the APIs, creates the Artifact Registry repo, service accounts, the keyless GitHub WIF provider, the database and user, the `helmsman-*` secrets with per-secret IAM, a placeholder Cloud Run service, and the public-invoker binding. It never prompts: the `helmsman-dbinit` Cloud Run job creates the database as `helmsman_app`. An existing secret is never overwritten unless you pass `--rotate <name>`.
+
+## The pipeline
+
+Every push to `main` runs `.github/workflows/deploy-cloudrun.yml`:
+
+1. **test** — `uv run pytest tests/unit tests/integration -q` against a `postgres:17` service container.
+2. **deploy** — keyless auth (service account `helmsman-deployer`), build and push the image tagged with the commit's first 12 characters, run the `helmsman-migrate` job to completion, deploy a **no-traffic** revision tagged `candidate`, health-check it (`/api/health`, up to ~60 s), shift 100% traffic, health-check the service URL.
+3. **Rollback guard** — any failure after the previous revision was captured restores it to 100% and removes the `candidate` tag; the run ends red. The workflow never passes `--allow-unauthenticated`; `provision.sh` owns the public invoker binding.
+
+Manual run (any branch or tag ref): `gh workflow run deploy-cloudrun.yml --ref <ref>` or Actions -> "Deploy (Cloud Run)" -> Run workflow. Inputs: `min_instances` (empty = unchanged, `0`, `1`) and `drill_rollback` (health-checks a path that 404s, so the run **must** fail and roll back — use it to prove the guard).
+
+Repository variable `HELMSMAN_BASE_URL` (set at cutover, e.g. `https://workshop0.smalltech.in`) is passed to the service **only when non-empty**; share links then use that domain. Unset, links derive from the request. Set it with `gh variable set HELMSMAN_BASE_URL --body https://workshop0.smalltech.in`.
+
+Migrations must stay backward-compatible with the previous revision for the one-deploy overlap window (additive first, destructive in a later release).
+
+## Workshop mode (avoid cold starts)
 
 ```bash
-gcloud compute addresses create helmsman-ip --region=asia-south1
-gcloud compute instances delete-access-config helmsman --zone=asia-south1-a --access-config-name="external-nat"
-gcloud compute instances add-access-config helmsman --zone=asia-south1-a --address=HELMSMAN_IP
+bash deploy/cloudrun/workshop-mode.sh on       # min-instances=1 (one warm instance)
+bash deploy/cloudrun/workshop-mode.sh off      # min-instances=0 (scale to zero)
+bash deploy/cloudrun/workshop-mode.sh status   # min-instances=<n> max-instances=<n>
 ```
 
-## 2. DNS
+- Run `on` **at least 10 minutes before** a workshop starts, confirm with `status`, and run `off` afterwards.
+- **Rehearse with the actual participant count** (join that many browsers or run the e2e/poll-burst checks) before a large workshop.
+- Traffic is pinned to a named revision, so a plain `gcloud run services update --min-instances` would create a revision serving 0% traffic. The script reuses the serving revision's image, applies the new `min-instances`, and pins 100% traffic to the new revision. Use the script, not a raw `gcloud` update.
 
-Point the hostname at the VM's external IP, then wait for propagation:
+**Cold start:** with `min-instances=0` the first request after idle takes a few seconds while an instance boots (CPU boost is on). That is expected, not a bug; workshop mode removes it.
 
-```
-Type: A    Name: workshops    Value: <VM_EXTERNAL_IP>    TTL: 300
-```
+## Connection-budget rule
 
-Verify before continuing (TLS issuance fails if DNS isn't live):
+The shared Cloud SQL instance has a limited connection budget. Each instance holds up to `HELMSMAN_DB_POOL_SIZE + HELMSMAN_DB_MAX_OVERFLOW` (3 + 2) connections. **Never raise `max-instances` (or the pool settings) without recomputing**: `max-instances x (pool_size + max_overflow) <= ~15`. Today: 3 x 5 = 15.
+
+## Operations: logs, health, rollback
 
 ```bash
-dig +short workshops.smalltech.in    # must return the VM IP
+gcloud run services logs read helmsman --region us-central1 --project ai-agent-boilerplate0 --limit 100
+gcloud run revisions list --service helmsman --region us-central1 --project ai-agent-boilerplate0
+curl -fsS "$(gcloud run services describe helmsman --region us-central1 --project ai-agent-boilerplate0 --format='value(status.url)')/api/health"
+# manual rollback to a known-good revision
+gcloud run services update-traffic helmsman --region us-central1 --project ai-agent-boilerplate0 --to-revisions <REVISION>=100
 ```
 
-## 3. Install Docker on the VM
+Logs are JSON lines with a `severity` key.
+
+## Database backup and restore
+
+Cloud SQL automated backups / PITR are owned by the instance's owner (the instance is shared); Helmsman does not alter them. Per-database logical export (needs a bucket you own):
 
 ```bash
-gcloud compute ssh helmsman --zone=asia-south1-a
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker "$USER"   # log out/in so the group applies
+gcloud sql export sql ai-agent-db gs://<bucket>/helmsman-$(date +%F).sql --database=helmsman --project ai-agent-boilerplate0
 ```
 
-## 4. Configure secrets on the VM
+Restore (into the empty `helmsman` database; this is destructive, so stop and confirm first):
 
 ```bash
-sudo mkdir -p /opt/helmsman && sudo chown "$USER" /opt/helmsman
-cd /opt/helmsman
-cat > .env <<'EOF'
-HELMSMAN_DOMAIN=workshops.smalltech.in
-ACME_EMAIL=contact@smalltech.in
-HELMSMAN_ADMIN_KEY=<A_STRONG_RANDOM_STRING_16+_CHARS>
-# Optional — Phase 4 AI help-desk. Leave blank to run air-gapped.
-OPENROUTER_API_KEY=
-EOF
-chmod 600 .env
+gcloud sql import sql ai-agent-db gs://<bucket>/helmsman-<date>.sql --database=helmsman --project ai-agent-boilerplate0
 ```
 
-Generate a strong admin key with `openssl rand -base64 24`.
+The Cloud SQL service account needs read access to the bucket for imports and write access for exports.
 
-## 5. First deploy (manual build on the VM)
+## Cutover from the VM to Cloud Run (human gate)
 
-Get the code onto the box (git clone the repo, or `scp` the `deploy/` dir plus
-source). From the repo root on the VM:
+Prerequisites: provisioned, the Phase-8 image deployed (it contains `scripts/`), `gcloud` and `gh` authenticated, `smalltech.in` verified with Google (`domain-map.sh` tells you if not).
 
-```bash
-docker compose -f deploy/docker-compose.yml --env-file /opt/helmsman/.env up -d --build
-docker compose -f deploy/docker-compose.yml logs -f caddy   # watch cert issuance
-```
+1. **Day before:** the production host is `workshop0.smalltech.in` (host label `workshop0`). Pick a window with **no live workshop**: the DNS flip and certificate issuance cause a short HTTPS gap (up to ~30-60 minutes), and anything written on the VM after the final import is not carried over. Note the names, statuses and participant counts of the VM's workshops for comparison.
+2. **Import the VM data** (read-only against the VM; wipes the throw-away Cloud Run data):
 
-Check it:
+   ```bash
+   bash deploy/cloudrun/import-data.sh --pull-from-vm --replace
+   ```
 
-```bash
-curl -fsS https://workshops.smalltech.in/api/health   # {"data":{"status":"ok","db":"ok"},...}
-```
+   It prints a per-table verification table; every row must say `OK`.
+3. **Create the domain mapping:**
 
-Open `https://workshops.smalltech.in/app/`, enter the admin key, run the create →
-join → complete → help loop. **The first HTTPS request may take ~10–30s** while
-Caddy provisions the certificate; subsequent requests are instant.
+   ```bash
+   bash deploy/cloudrun/domain-map.sh
+   ```
 
----
+   It prints the DNS records to set. If it reports the domain is unverified, add the TXT record below first and re-run it.
+4. **GoDaddy DNS for `smalltech.in` (manual).** In the DNS records for `smalltech.in`:
+   - **Add** `CNAME` · Host `workshop0` · Points to `ghs.googlehosted.com` · TTL `600`. (Done: the user created this record directly; the old `workshops` A record `35.200.241.145` is gone and `workshops.smalltech.in` no longer resolves.)
+   - If any `A` or `AAAA` record exists for host `workshop0`, delete it (a CNAME cannot coexist with them).
+   - Only if `domain-map.sh` reports the domain as unverified: add the `TXT` record it prints at host `@` (`google-site-verification=...`).
 
-## 6. Automated CD (GitHub Actions → VM)
+   If `gcloud beta run domain-mappings describe` shows different `resourceRecords`, **those win**: use the values it prints.
+5. **Wait for the certificate and health:**
 
-Once §1–§5 work manually, wire up hands-free deploys.
+   ```bash
+   bash deploy/cloudrun/domain-map.sh --wait
+   ```
 
-1. Create a deploy SSH keypair; put the **public** key in the VM's
-   `~/.ssh/authorized_keys`, the **private** key in the repo secret `DEPLOY_SSH_KEY`.
-2. Add repo secrets (Settings → Secrets and variables → Actions):
-   `DEPLOY_HOST` = VM IP, `DEPLOY_USER` = your SSH user. `GITHUB_TOKEN` is
-   provided automatically for GHCR.
-3. Ensure `/opt/helmsman/.env` exists on the VM (from §4) — CD never ships secrets.
-4. Merge to `main`. `.github/workflows/deploy.yml` builds the image, pushes it to
-   `ghcr.io/<org>/workshop-helmsman`, copies the prod compose + Caddyfile to
-   `/opt/helmsman`, pulls, and re-ups. The job fails if `/api/health` doesn't come
-   back green, so a bad image won't silently take the site down.
+   Then set share links to the pretty domain and redeploy (merge the PR first):
 
-> Note: `main` is currently the pre-rebuild branch. The rebuild lives on
-> `feature/rebuild-v0.2` (PR #2). CD to production should only be armed after that
-> PR merges to `main` — until then, deploy manually from the branch (§5).
+   ```bash
+   gh variable set HELMSMAN_BASE_URL --body https://workshop0.smalltech.in
+   gh workflow run deploy-cloudrun.yml --ref main
+   ```
+6. **Smoke test** on the real domain: `curl -sI https://workshop0.smalltech.in/ | grep -i '^server: Google Frontend'`; open `/admin` with the admin key and compare workshops with your notes; open an old facilitator link (`/f/<admin_token>`) and an old participant link (`/p/<token>`); create a workshop, join from a second browser, complete a milestone, and check the shown links start with `https://workshop0.smalltech.in/`.
+7. After a stable period, decommission the VM (checklist below).
 
----
+## Rollback plan
 
-## 7. Backup & restore
+> **Status: the VM rollback is NOT currently serving by name.** The `workshops` DNS record was deleted, and the VM's reverse proxy is still configured for the old hostname, so the VM does not answer for `workshop0.smalltech.in` until the steps below are done. The VM itself is untouched.
 
-All durable state is the SQLite DB in the `helmsman-data` volume.
+Rollback is possible at any point before the VM is decommissioned. **Data warning:** the VM's SQLite database is stale. Anything written to Cloud SQL after the import/cutover is not on the VM and is lost by a rollback unless you export it first (for example, run a Cloud SQL export of database `helmsman` to a bucket, or note the workshops you need to recreate).
 
-**Backup** (cron it):
+1. **GoDaddy:** delete the `CNAME` for host `workshop0`, then add `A` · Host `workshop0` · Points to `35.200.241.145` · TTL `600`.
+2. **On the VM** (`helmsman-c`, `asia-south1-c`), the reverse proxy gets its certificate for whatever `HELMSMAN_DOMAIN` says, and `HELMSMAN_BASE_URL` is derived from it (`https://${HELMSMAN_DOMAIN}`). Edit `/opt/helmsman/.env` and set:
 
-```bash
-docker compose -f docker-compose.prod.yml exec -T app \
-  sh -c 'cd data && sqlite3 helmsman.db ".backup /tmp/backup.db" && cat /tmp/backup.db' \
-  > "helmsman-$(date +%F).db"     # date via shell substitution on the VM
-```
+   ```
+   HELMSMAN_DOMAIN=workshop0.smalltech.in
+   ```
 
-If the image lacks `sqlite3`, snapshot the file directly (SQLite WAL is enabled;
-copy while briefly paused or use `.backup` as above):
+   (it currently holds the old `workshops.smalltech.in`; keep the other values).
+3. **Recreate the stack on the VM** with the compose and proxy config from the tag. The old deploy path is preserved in git, not in the current tree:
 
-```bash
-docker run --rm -v helmsman_helmsman-data:/d -v "$PWD":/out alpine \
-  cp /d/helmsman.db /out/helmsman-backup.db
-```
+   ```bash
+   git show vm-deploy-final:deploy/docker-compose.prod.yml > /opt/helmsman/docker-compose.prod.yml
+   git ls-tree --name-only vm-deploy-final deploy/   # find the reverse-proxy config file the compose file mounts
+   git show vm-deploy-final:deploy/<proxy-config-file> > /opt/helmsman/<proxy-config-file>
+   cd /opt/helmsman && docker compose -f docker-compose.prod.yml --env-file .env up -d --force-recreate
+   ```
 
-**Restore:**
+   Compare file locations with `git show vm-deploy-final:deploy/RUNBOOK.md` (the VM layout section) before running. The proxy then obtains a certificate for `workshop0.smalltech.in`; this needs the A record from step 1 to have propagated, and takes a few minutes.
+4. Verify: `curl -fsS https://workshop0.smalltech.in/api/health`, and that the response is no longer from Google (`curl -sI ... | grep -i '^server:'` should not show `Google Frontend`).
 
-```bash
-docker compose -f docker-compose.prod.yml stop app
-docker run --rm -v helmsman_helmsman-data:/d -v "$PWD":/in alpine \
-  cp /in/helmsman-backup.db /d/helmsman.db
-docker compose -f docker-compose.prod.yml start app
-```
+For a bad application release (as opposed to the cutover), use the pipeline's automatic rollback or the manual `update-traffic` command above.
 
-## 8. Operations quick reference
+## Naming note
 
-| Task | Command (in `/opt/helmsman`) |
-|------|------|
-| Logs | `docker compose -f docker-compose.prod.yml logs -f app` |
-| Restart app | `docker compose -f docker-compose.prod.yml restart app` |
-| Roll to latest | `docker compose -f docker-compose.prod.yml pull app && docker compose -f docker-compose.prod.yml up -d` |
-| Health | `curl -fsS https://workshops.smalltech.in/api/health` |
-| DB size | `docker compose -f docker-compose.prod.yml exec app du -h data/helmsman.db` |
+The Cloud Run resources (service, jobs, database, service accounts, secrets) keep the name `helmsman`. Cloud Run services cannot be renamed in place, and nothing user-visible depends on the name: users only see `workshop0.smalltech.in`.
 
-Migrations run automatically on every boot (idempotent) — no manual step.
+## VM decommission checklist (user-owned; not automated)
+
+Only after a stable period on Cloud Run:
+
+- [ ] Confirm `https://workshop0.smalltech.in/` has served from Cloud Run for the agreed period and the admin list matches the import.
+- [ ] Take a final copy of the VM's SQLite database (`/srv/helmsman/data/helmsman.db`) and keep it somewhere safe.
+- [ ] Snapshot the VM's disk (`helmsman-c`, zone `asia-south1-c`).
+- [ ] Stop the VM and watch for a few days for anything still depending on it.
+- [ ] Delete the VM `helmsman-c`.
+- [ ] Release the static IP `35.200.241.145` (it is no longer the rollback target once released).
+- [ ] Remove any now-unused VM firewall rules and old GitHub secrets from the VM deploy.
+- [ ] Delete the disk snapshot when you no longer need the safety net.

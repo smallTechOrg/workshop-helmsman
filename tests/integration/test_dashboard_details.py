@@ -36,9 +36,6 @@ def test_leaderboard_rank_earlier_reach_time_wins(
             .values(completed_at=utcnow() + timedelta(seconds=30))
         )
 
-    from src.helmsman.services.snapshots import clear_snapshot_cache
-
-    clear_snapshot_cache()
     state = slow_browser.get(f"/api/p/{slow['participant_token']}/state").json()["data"]
     names_in_order = [row["name"] for row in state["leaderboard"]]
     assert names_in_order == ["Slow", "Fast"]
@@ -123,29 +120,26 @@ def test_timestamps_are_iso_8601_z(client, make_client, workshop, join_participa
     assert ISO_Z.match(queue_row["updated_at"])
 
 
-def test_snapshot_is_coalesced_across_pollers_at_same_version(
+def test_snapshots_are_built_fresh_and_see_unversioned_changes(
     client, make_client, workshop, join_participant
 ):
+    """No memo: two consecutive builds at the SAME state_version both reflect a data
+    change made without a version bump."""
     join_participant(make_client(), workshop["join_slug"], "Priya")
 
-    import src.helmsman.services.snapshots as snapshots
+    from sqlalchemy import update
 
-    calls = {"n": 0}
-    original = snapshots._build_dashboard
+    from src.helmsman.db.models import Participant
+    from src.helmsman.db.session import create_db_session
 
-    def counting_build(*args, **kwargs):
-        calls["n"] += 1
-        return original(*args, **kwargs)
-
-    snapshots._build_dashboard = counting_build
-    try:
-        snapshots.clear_snapshot_cache()
-        for _ in range(5):
-            data = client.get(f"/api/f/{workshop['admin_token']}/dashboard").json()["data"]
-            assert data["changed"] is True
-    finally:
-        snapshots._build_dashboard = original
-    assert calls["n"] == 1
+    url = f"/api/f/{workshop['admin_token']}/dashboard"
+    first = client.get(url).json()["data"]
+    with create_db_session() as session:
+        session.execute(update(Participant).values(name="Renamed"))
+    second = client.get(url).json()["data"]
+    assert second["version"] == first["version"]
+    assert first["participants"][0]["name"] == "Priya"
+    assert second["participants"][0]["name"] == "Renamed"
 
 
 def test_empty_workshop_dashboard_has_consistent_zero_state(client, workshop):
@@ -177,7 +171,7 @@ def test_state_poll_touches_stale_last_seen_without_version_bump(
     from src.helmsman.api._common import utcnow
     from src.helmsman.db.models import Participant
     from src.helmsman.db.session import create_db_session
-    from src.helmsman.services.snapshots import ACTIVE_WINDOW_SECONDS, clear_snapshot_cache
+    from src.helmsman.services.snapshots import ACTIVE_WINDOW_SECONDS
 
     with create_db_session() as session:
         session.execute(
@@ -186,7 +180,6 @@ def test_state_poll_touches_stale_last_seen_without_version_bump(
             )
         )
 
-    clear_snapshot_cache()
     dashboard = client.get(f"/api/f/{workshop['admin_token']}/dashboard").json()["data"]
     assert dashboard["stats"]["active_count"] == 0
     version_before = dashboard["version"]
@@ -194,7 +187,7 @@ def test_state_poll_touches_stale_last_seen_without_version_bump(
     state = browser.get(f"/api/p/{token}/state").json()["data"]
     assert state["version"] == version_before  # the touch never bumps the version
 
-    clear_snapshot_cache()  # simulate TTL expiry (the safety net for touch-only changes)
+    # no memo: the next build sees the touch without any version bump
     dashboard = client.get(f"/api/f/{workshop['admin_token']}/dashboard").json()["data"]
     assert dashboard["stats"]["active_count"] == 1
 
@@ -228,10 +221,6 @@ def test_leaderboard_capped_at_top_15_plus_me(client, make_client, workshop, joi
     first_milestone = state["milestones"][0]["id"]
     for b, j in zip(browsers[:16], joined[:16]):
         b.post(f"/api/p/{j['participant_token']}/milestones/{first_milestone}/complete")
-
-    from src.helmsman.services.snapshots import clear_snapshot_cache
-
-    clear_snapshot_cache()
 
     last = browsers[19].get(f"/api/p/{joined[19]['participant_token']}/state").json()["data"]
     assert last["participants_count"] == 20

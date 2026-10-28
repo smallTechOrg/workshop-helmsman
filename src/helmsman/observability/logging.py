@@ -26,6 +26,13 @@ def mask_token(token: str) -> str:
     return token[:MASK_VISIBLE_CHARS] + "…"
 
 
+def add_severity(_logger, _method_name, event_dict):
+    """Cloud Logging reads `severity`; map it from the structlog `level` key."""
+    level = event_dict.get("level", "info")
+    event_dict["severity"] = {"warn": "WARNING", "exception": "ERROR"}.get(level, level.upper())
+    return event_dict
+
+
 def configure_logging(level: str = "INFO") -> None:
     level_num = getattr(logging, level.upper(), logging.INFO)
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=level_num, force=True)
@@ -33,6 +40,7 @@ def configure_logging(level: str = "INFO") -> None:
         processors=[
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
+            add_severity,
             structlog.processors.TimeStamper(fmt="iso", utc=True),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,

@@ -9,8 +9,11 @@
 | Web framework | FastAPI | ≥0.115 |
 | ASGI server | uvicorn | single process, single worker (see Process model) |
 | ORM | SQLAlchemy | 2.x, sync engine, `Mapped`/`mapped_column` declarative |
-| Migrations | Alembic | ≥1.13, `render_as_batch=True` for SQLite ALTER support |
-| Database | SQLite (WAL) | file `data/helmsman.db`; PostgreSQL-ready via `DATABASE_URL` override — no SQLite-only SQL in app code (FTS5 corpus is the one documented exception, with a PostgreSQL note in agent.md) |
+| Migrations | Alembic | ≥1.13, `render_as_batch=True` (needed for SQLite ALTER; harmless no-op on PostgreSQL). Migrations must apply cleanly on **both** engines (Phase 7 proves PostgreSQL) |
+| Database (production, Phase 7+) | **PostgreSQL 17 on Cloud SQL** | existing shared instance `ai-agent-db` (connection `ai-agent-boilerplate0:us-central1:ai-agent-db`, PRIVATE IP `10.110.112.7:5432`, TLS enforced, `max_connections=90`, db-f1-micro). Helmsman owns **only** database `helmsman` + user `helmsman_app`; it never touches other apps' databases, users or secrets |
+| Database (local dev / `deploy/docker-compose.yml`) | SQLite (WAL) | file `data/helmsman.db`, the `DATABASE_URL` default; no SQLite-only SQL in app code (the Phase-4 FTS5 corpus is the one documented exception, PostgreSQL variant in agent.md) |
+| DB driver | psycopg 3 (`psycopg[binary]`) | URL scheme `postgresql+psycopg://…?sslmode=require`; added to `pyproject.toml` + `uv.lock` in Phase 7 |
+| Test database | PostgreSQL 17 (harness Rule 5) | `TEST_DATABASE_URL` (local Homebrew `postgresql@17`, CI service container); tests never fall back to SQLite |
 | Settings | pydantic-settings | v2, loads `.env` |
 | Logging | structlog | JSON to stdout |
 | HTTP client (LLM) | httpx | OpenRouter REST, 30s timeout |
@@ -23,7 +26,8 @@
 | E2E testing | Playwright | `@playwright/test`, chromium, config at repo root, tests in `tests/e2e/` |
 | Backend testing | pytest | `tests/unit/`, `tests/integration/` |
 | LLM provider | OpenRouter | key: `OPENROUTER_API_KEY` (exact name — project convention); default model `anthropic/claude-sonnet-4-6` via `HELMSMAN_AI_MODEL` |
-| Deploy | Docker Compose on a VM; GitHub Actions CI/CD to GCP | Phase 5 — never blocks earlier phases |
+| Deploy (production, Phase 7+) | **Cloud Run + Cloud SQL**, GitHub Actions + Workload Identity Federation | see §Production topology. Supersedes the Phase-5 VM path (Docker Compose + Caddy + SQLite on GCE), removed from the repo in Phase 8 (recoverable from git tag `vm-deploy-final`) |
+| Deploy (local) | Docker Compose (`deploy/docker-compose.yml`) | SQLite + volume; kept for local dev and self-hosters |
 
 > **Assumed:** Node LTS (22.x) pinned via `frontend/.nvmrc` and `engines`; all frontend `dev`/`build` scripts carry `NODE_OPTIONS=--no-experimental-webstorage` (harness Node ≥25 safety rule).
 
@@ -40,7 +44,7 @@ workshop-helmsman/                  ← repo root IS the project; all commands r
 │       ├── security.py             ← token generation + auth dependencies
 │       ├── db/
 │       │   ├── models.py           ← all SQLAlchemy models (spec/data-model.md)
-│       │   └── session.py          ← engine, SQLite pragmas, session dependency
+│       │   └── session.py          ← engine (SQLite pragmas | PostgreSQL pool), session dependency
 │       ├── api/
 │       │   ├── __init__.py         ← create_app(): routers, static mount, pretty-link redirects
 │       │   ├── _common.py          ← ok(), api_error()
@@ -50,7 +54,7 @@ workshop-helmsman/                  ← repo root IS the project; all commands r
 │       │   ├── facilitator.py      ← /api/f/{admin_token}/… surface
 │       │   └── participant.py      ← /api/join/…, /api/p/{token}/… surface
 │       ├── services/
-│       │   ├── snapshots.py        ← versioned poll-payload builders + in-process cache
+│       │   ├── snapshots.py        ← versioned poll-payload builders (stateless; in-process memo dropped in Phase 7)
 │       │   ├── lifecycle.py        ← lazy status transitions (Phase 3)
 │       │   ├── intelligence.py     ← stuck / bottleneck / pulse computation (Phase 2)
 │       │   ├── undo.py             ← undoable-action record/replay (Phase 2)
@@ -96,10 +100,20 @@ workshop-helmsman/                  ← repo root IS the project; all commands r
 ├── pyproject.toml                  ← uv-managed; testpaths = ["tests"]
 ├── alembic.ini
 ├── .env.example
-├── data/                           ← SQLite file at runtime (gitignored)
-├── deploy/                         ← Phase 5: Dockerfile, docker-compose.yml, runbook
-└── .github/workflows/              ← Phase 5: CI/CD
+├── data/                           ← SQLite file at runtime, local dev only (gitignored)
+├── scripts/                        ← Phase 8: sqlite_to_postgres.py (one-off cutover import)
+├── deploy/
+│   ├── Dockerfile                  ← multi-stage image (shared by compose + Cloud Run)
+│   ├── entrypoint.sh               ← `migrate` subcommand; boot-time migrations opt-in via HELMSMAN_MIGRATE_ON_BOOT
+│   ├── docker-compose.yml          ← local dev (SQLite) — kept
+│   ├── cloudrun/                   ← Phase 7: provision.sh, dbinit.py, workshop-mode.sh · Phase 8: import-data.sh, domain-map.sh
+│   └── RUNBOOK.md                  ← Phase 8: rewritten for Cloud Run (topology, cutover, rollback, VM decommission)
+└── .github/workflows/
+    ├── ci.yml                      ← PR/push: tests on a PostgreSQL 17 service container
+    └── deploy-cloudrun.yml         ← production deploy (WIF → AR → migrate job → revision → traffic); push to main + workflow_dispatch (any branch ref)
 ```
+
+> The Phase-5 VM deploy path (`docker-compose.prod.yml`, the reverse-proxy config, `deploy.yml`) was deleted in Phase 8; it remains recoverable from git tag `vm-deploy-final`.
 
 Import convention: the application package is `src.helmsman.*` (the `src` package exists so `uv run python -m src` boots — harness contract).
 
@@ -118,7 +132,7 @@ Import convention: the application package is `src.helmsman.*` (the `src` packag
   - `GET /admin` → 307 → `/app/admin/` (Phase 6; the pretty admin-console link)
 - No separate Node server in production. `pnpm dev` (port 3000) is inner-loop only and is never the documented test path.
 
-**Single worker is a deliberate choice**, not an accident: it makes the in-process snapshot cache correct without Redis, and the load profile (below) fits comfortably in one asyncio process + threadpool. If the app ever outgrows one worker, the cache moves behind the DB (the DB is already the source of truth, so nothing breaks — the cache is only an optimization).
+**One uvicorn worker per container is a deliberate choice**: the load profile (below) fits one asyncio process + threadpool. **From Phase 7 the process is fully stateless** — no in-process cache, no per-process throttle state — so Cloud Run may run 0–3 instances concurrently and every instance is interchangeable; the DB is the only shared state. (Phases 1–6 had an in-process snapshot memo that relied on a single process; it is removed — see §Live-update mechanism point 5.) Behind Cloud Run's TLS-terminating front end uvicorn must run with `proxy_headers=True, forwarded_allow_ips="*"` so `request.base_url` is `https://…` and generated share links are correct.
 
 ## Public landing page & routing (Phase 6)
 
@@ -177,18 +191,20 @@ Two constraints the frontend slice must honour so this is safe (a generator must
 
 **Decision: short polling with per-workshop version counters and an in-process snapshot cache. No SSE, no WebSockets.**
 
-Load profile: 300+ participants + 1–3 facilitator dashboards on 2 vCPU / 2–4 GB, SQLite storage, and a hard resilience rule (reconnect/restart must recover purely from the DB).
+Load profile: 300+ participants + 1–3 facilitator dashboards on modest hardware (originally a 2 vCPU VM + SQLite; from Phase 7, up to 3 Cloud Run instances + a shared db-f1-micro PostgreSQL), and a hard resilience rule (reconnect/restart must recover purely from the DB).
 
 Why polling beats SSE here:
 
 1. **Resilience is free.** Polling is stateless — after a server restart, every client's next poll simply succeeds with full state. SSE requires reconnect logic, `Last-Event-ID` replay, server-side fan-out state, and produces a thundering-herd reconnect after every restart or deploy. The resilience requirement ("restart loses nothing, reconnect restores exact state") is the polling model's native behavior.
 2. **The arithmetic is trivial.** 300 participants polling every 3 s = 100 req/s. Each poll does **one indexed point-read** (the workshop's version row) and, when nothing changed (the overwhelming steady state), returns a ~60-byte `{"changed": false}` response. SQLite in WAL mode serves tens of thousands of point-reads/s; uvicorn serves 100 req/s of this without noticing. SSE's 300 idle connections would also fit in memory — but buys nothing over this, at real complexity cost (proxy buffering config, keepalive pings, per-event fan-out code).
-3. **SQLite write contention stays negligible.** Peak write load is a completion burst (~5–10 writes/s) plus joins and help requests. WAL readers never block the writer; each write is a short transaction that also bumps the workshop's version counter. Polling adds *zero* writes (the `last_seen_at` touch is throttled to once per 60 s per participant ≈ 5 writes/s at 300 participants).
+3. **SQLite write contention stays negligible.** Peak write load is a completion burst (~5–10 writes/s) plus joins and help requests. WAL readers never block the writer; each write is a short transaction that also bumps the workshop's version counter. Polling adds almost no writes: the `last_seen_at` touch is a **DB-side conditional UPDATE** (`UPDATE participant SET last_seen_at=:now WHERE id=:id AND last_seen_at < :now - 60s`) — stateless and correct across instances; it matches a row at most once per 60 s per participant (≈ 5 real writes/s at 300 participants) and is a no-match no-op otherwise. (On PostgreSQL the multi-writer model replaces the SQLite WAL single-writer reasoning above; the writes are tiny either way.)
 4. **Bandwidth is controlled by two version counters.** Each workshop row carries:
    - `state_version` — bumped on any activity change (join, completion, help, answer, broadcast, pause, advance, reorder…)
    - `content_version` — bumped only when milestone content/order changes.
    Clients send their last-seen `state_version`; unchanged → tiny response. Changed → the poll payload (**without** milestone `content_md` — leaderboard, progress, help state; ~10–15 KB at 300 participants). Milestone bodies are fetched from a separate content endpoint only when `content_version` changes. Worst-case burst (a completion every second, all 300 clients refreshing full payloads) ≈ 1–1.5 MB/s — comfortably inside a modest VM's budget; steady state is ~10 KB/s total.
-5. **Coalescing caps DB work independent of participant count.** The changed-payload for a given `(workshop_id, state_version)` is built once and memoized in-process (dict, TTL 2 s as a safety net); 300 pollers hitting the same version share one snapshot build. Per-request personal data ("me": my completions, my help requests) is 2–3 indexed point-queries per poll — ~250 cheap queries/s at burst, trivial for WAL SQLite.
+5. **Snapshot builds are NOT coalesced (changed in Phase 7).** Phases 1–6 memoized the changed-payload per `(workshop_id, state_version)` in-process (TTL 2 s) so 300 pollers shared one build. That memo is **dropped**: it is per-process, so it is incorrect/ineffective once Cloud Run runs several instances, and it is not needed for the steady state (the `{"changed": false}` fast path still costs one indexed point-read). Every poll whose `v` differs from the current `state_version` now builds its own snapshot (a handful of indexed queries). Per-request personal data ("me") is 2–3 indexed point-queries per poll.
+
+   > **REVISIT-IF (memo):** revisit if load testing shows snapshot build is a bottleneck; key was `(workshop_id, state_version)`. Exposure: a completion burst makes up to ~300 clients rebuild the same payload within one poll interval against a db-f1-micro. Candidate fixes, in order: a per-instance memo again (safe because the key includes the version, so it can never serve stale data — only the old 2 s TTL was the safety net for un-versioned `last_seen_at`), then a payload cache table keyed by `(workshop_id, state_version)`. Not built now (no gold-plating); a code comment at the removal site in `services/snapshots.py` carries the same note.
 
 Poll intervals (client, via the `lib/poll.ts` hook): participant tracker **3 s** visible / **15 s** hidden (Page Visibility API); facilitator dashboard **2 s** visible / **10 s** hidden. Every mutation response includes the new `state_version`, and the client polls immediately after any of its own mutations, so the actor always sees their effect within one round-trip (plus optimistic UI, see Error handling).
 
@@ -236,10 +252,10 @@ The credential table above is **unchanged**. Creation simply stops requiring the
 
 ## Database configuration
 
-- SQLite engine (default `sqlite:///data/helmsman.db`), applied per-connection via an `connect` event listener:
-  `PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;`
-- SQLAlchemy: sync engine, `pool_pre_ping=True`; for SQLite `connect_args={"check_same_thread": False}`.
-- `DATABASE_URL` may point at PostgreSQL; models use portable types only (Integer/Text/Boolean/DateTime/Numeric + JSON as Text). Alembic runs with `render_as_batch=True` so SQLite ALTERs work. The FTS5 help corpus (Phase 4) is created only when the dialect is SQLite; agent.md documents the PostgreSQL alternative.
+- **Production = PostgreSQL** (`DATABASE_URL=postgresql+psycopg://helmsman_app:…@10.110.112.7:5432/helmsman?sslmode=require`, injected from a Secret Manager secret). **Local default = SQLite** (`sqlite:///data/helmsman.db`), pragmas applied per-connection via a `connect` listener: `PRAGMA journal_mode=WAL; synchronous=NORMAL; busy_timeout=5000; foreign_keys=ON;`.
+- SQLAlchemy: sync engine, `pool_pre_ping=True`. SQLite: `connect_args={"check_same_thread": False}`. **PostgreSQL pool is sized for a shared 90-connection instance:** `pool_size=3`, `max_overflow=2`, `pool_timeout=10`, `pool_recycle=1800` (all env-tunable, below). Budget rule: `max-instances × (pool_size + max_overflow) ≤ ~15` → 3 × 5 = 15, plus 1 for the migrate job. Never raise Cloud Run `max-instances` without recomputing this.
+- A scheme of `postgres://` or `postgresql://` is normalised to `postgresql+psycopg://` at settings load. Models use portable types only (Integer/Text/Boolean/DateTime(timezone=True)/Numeric + JSON as Text). Integer PKs are PostgreSQL identity/serial columns (relevant to the Phase-8 import: sequences are reset). The FTS5 help corpus (Phase 4) is SQLite-only; **in production the PostgreSQL variant (tsvector + GIN) is the build target** — see agent.md.
+- Any query that is only correct on SQLite (unordered `LIMIT`, case-insensitive-by-accident matching, loose `GROUP BY`, naive-datetime assumptions) is an app bug to fix, not a test to weaken.
 - All timestamps stored UTC; serialized as ISO 8601 `Z` (`2026-07-20T14:03:22Z`).
 - Transactions are short: one request = one transaction (commit in the session dependency). Any state-changing write bumps the workshop's `state_version` in the same transaction.
 - **Lazy lifecycle transitions (Phase 3):** no cron/background scheduler. Every workshop-scoped request first applies due transitions (`grace_until` passed → `archived`) inside the request transaction — restart-proof by construction.
@@ -257,8 +273,12 @@ The credential table above is **unchanged**. Creation simply stops requiring the
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | no | `sqlite:///data/helmsman.db` | SQLAlchemy URL; PostgreSQL-ready |
-| `PORT` | no | `8001` | HTTP port |
+| `DATABASE_URL` | no | `sqlite:///data/helmsman.db` | SQLAlchemy URL; **PostgreSQL in production** (Cloud Run gets it from secret `helmsman-database-url`) |
+| `HELMSMAN_DB_POOL_SIZE` | no | `3` | PostgreSQL pool size (ignored on SQLite) |
+| `HELMSMAN_DB_MAX_OVERFLOW` | no | `2` | PostgreSQL pool overflow |
+| `HELMSMAN_MIGRATE_ON_BOOT` | no | `1` | `1` → container entrypoint runs `alembic upgrade head` before serving (local compose). **Cloud Run sets `0`**: migrations run only in the `helmsman-migrate` job |
+| `TEST_DATABASE_URL` | tests only | — | PostgreSQL URL of a throwaway `*_test` database; the suite refuses any database whose name does not end in `_test` |
+| `PORT` | no | `8001` | HTTP port (Cloud Run injects `8080`) |
 | `HELMSMAN_ADMIN_KEY` | **yes** | — | Facilitator access key for Admin Home |
 | `HELMSMAN_BASE_URL` | no | derived from request | Absolute base for generated share links (set behind a proxy) |
 | `HELMSMAN_LOG_LEVEL` | no | `INFO` | structlog level |
@@ -266,13 +286,55 @@ The credential table above is **unchanged**. Creation simply stops requiring the
 | `HELMSMAN_AI_MODEL` | no | `anthropic/claude-sonnet-4-6` | OpenRouter model id |
 | `HELMSMAN_AI_CONFIDENCE` | no | `0.75` | Auto-answer confidence threshold (see agent.md) |
 
-## Deploy shape (Phase 5)
+## Deploy shape
 
-- `deploy/Dockerfile` — multi-stage: (1) Node stage builds the frontend export, (2) Python stage with uv installs the app and copies `frontend/out/`; runs `alembic upgrade head` then `python -m src`.
-- `deploy/docker-compose.yml` — one service, one named volume for `data/` (SQLite + WAL files), `env_file: .env`, port 8001. Optional Caddy/nginx TLS proxy is documented, not shipped.
-- `.github/workflows/ci.yml` — on PR: `uv run pytest tests/unit -q` + `pnpm build` + lint. Real-key integration tests run only where secrets exist (guarded skip).
-- `.github/workflows/deploy.yml` — on main: build image, push to Artifact Registry, SSH-deploy compose to the GCP VM.
-- Backup = copy the `data/` volume (documented in `deploy/RUNBOOK.md`).
+### Local / image (Phase 5, still valid)
+
+- `deploy/Dockerfile` — multi-stage: (1) Node stage builds the frontend export, (2) Python stage with uv installs the app and copies `frontend/out/`. Same image for compose and Cloud Run.
+- `deploy/entrypoint.sh` — `entrypoint.sh migrate` runs `alembic upgrade head` and exits (used by the Cloud Run job). With no argument it serves; **before serving it runs `alembic upgrade head` only if `HELMSMAN_MIGRATE_ON_BOOT` is `1`/`true`** (default `1`, so local compose is unchanged; Cloud Run sets `0`). It should exec the venv interpreter directly (not `uv run`) to keep cold starts short.
+- `deploy/docker-compose.yml` — local dev: one service, named volume for `data/` (SQLite), `env_file: .env`, port 8001. Kept after Phase 8.
+- `.github/workflows/ci.yml` — on PR/push: backend job with a **`postgres:17` service container** (`POSTGRES_PASSWORD=postgres`, `POSTGRES_DB=helmsman_test`, `--health-cmd pg_isready`), `TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/helmsman_test`, then `uv run pytest tests/unit tests/integration -q`; frontend build; e2e job also runs the app against a Postgres service container (`DATABASE_URL` set, `alembic upgrade head` first). Real-key tests run only where secrets exist (guarded skip).
+
+### Production topology (Phase 7+) — Cloud Run + Cloud SQL
+
+```
+GitHub Actions ──WIF (no keys)──▶ helmsman-deployer SA
+   build image ─▶ Artifact Registry us-central1/helmsman ─▶ Cloud Run Job helmsman-migrate (alembic upgrade head)
+        └─▶ Cloud Run service helmsman: new revision --no-traffic (tag candidate) ─▶ health check ─▶ shift 100% ─▶ health check ─▶ (fail ⇒ roll back)
+
+Browser ─HTTPS─▶ Cloud Run (helmsman, 0–3 instances, run.app URL; workshop0.smalltech.in via Cloud Run domain mapping, Phase 8)
+                   └─ Direct VPC egress (network default, subnet default, private-ranges-only) ─TLS─▶ Cloud SQL ai-agent-db 10.110.112.7:5432 / db helmsman
+Secrets: Secret Manager helmsman-* ─(--set-secrets, runtime SA helmsman-run)─▶ env
+```
+
+| Concern | Decision |
+|---|---|
+| Project / region | `ai-agent-boilerplate0` (number `870371939888`) / **`us-central1`** |
+| Region trade-off (deliberate) | Co-located with the database. Putting the service in `asia-south1` (nearer the India-based participants) would put every DB query across ~200 ms of inter-region latency — a poll that does 3 queries would cost ~600 ms and a full snapshot build seconds. Co-location instead costs India users one ~200 ms network round-trip per request, paid once and in parallel, not per query. Chosen: DB-adjacent. Revisit only if the database moves. |
+| Service | Cloud Run service `helmsman`, image `us-central1-docker.pkg.dev/ai-agent-boilerplate0/helmsman/helmsman:<sha12>`, public via an `allUsers` -> `roles/run.invoker` binding made by `provision.sh` on a pre-created placeholder service (the workflow never passes `--allow-unauthenticated`; the deployer has no setIamPolicy), port 8080 |
+| Sizing | `--cpu 1 --memory 512Mi --concurrency 40 --timeout 60 --max-instances 3 --min-instances 0 --cpu-boost --no-cpu-throttling`. `--no-cpu-throttling` (CPU allocated outside requests) is required because the Phase-4 AI pipeline runs as a post-response `BackgroundTask`, which request-billed Cloud Run would starve. With min-instances 0 an instance still scales to zero when idle. |
+| Scale-to-zero | Default `min-instances=0` → first request after idle pays a cold start (a few seconds). Before a workshop the operator runs **workshop mode** (`min-instances=1`) and turns it off after (see below). |
+| VPC egress | Direct VPC egress: `--network=default --subnet=default --vpc-egress=private-ranges-only` (sets annotations `run.googleapis.com/network-interfaces: [{"network":"default","subnetwork":"default"}]` and `run.googleapis.com/vpc-access-egress: private-ranges-only`). Internet egress (OpenRouter) goes direct, not through the VPC. |
+| TLS to DB | Instance is `ENCRYPTED_ONLY`; URL carries `sslmode=require` (encrypted; server cert not verified — private IP, accepted). |
+| Migrations | Cloud Run Job **`helmsman-migrate`** (same image + env + secrets + VPC egress, `--command entrypoint.sh --args migrate`, `--max-retries 0`) executed with `--wait` **before** the new revision receives traffic. Revisions run with `HELMSMAN_MIGRATE_ON_BOOT=0`. Migrations must stay backward-compatible with the previous revision for the one-deploy overlap window (additive first, destructive in a later release). |
+| Traffic shift + rollback guard | `gcloud run deploy helmsman --no-traffic --tag candidate --revision-suffix sha-<sha12>`; `GET https://candidate---…run.app/api/health` must return `{"status":"ok","db":"ok"}` (retry up to 60 s); then `update-traffic --to-revisions NEW=100`; health-check the service URL again; **any failure ⇒ `update-traffic --to-revisions <PREV>=100`** (PREV captured before the deploy) and the job exits non-zero. First-ever deploy (no service yet) deploys directly. |
+| Secrets (Secret Manager, prefix `helmsman-`) | `helmsman-database-url` (full URL incl. password), `helmsman-openrouter-api-key`, `helmsman-admin-key`; mounted via `--set-secrets DATABASE_URL=helmsman-database-url:latest,OPENROUTER_API_KEY=…,HELMSMAN_ADMIN_KEY=…`. Created only by `provision.sh`, value via stdin (`gcloud secrets versions add --data-file=-`), never in argv, logs or the repo. |
+| Service accounts | `helmsman-run` (runtime): `roles/secretmanager.secretAccessor` bound **per secret** on the three `helmsman-*` secrets only; no project-level roles. `helmsman-deployer` (CI): `roles/run.developer`, `roles/artifactregistry.writer` (on repo `helmsman`), `roles/iam.serviceAccountUser` on `helmsman-run`, `roles/secretmanager.viewer` on the three secrets (> **Assumed:** needed for `--set-secrets` validation; if the gate shows it is not required, drop it). Public-invoker IAM (`allUsers` → `roles/run.invoker`) is granted once by `provision.sh`, not by CI. |
+| Workload Identity Federation | Existing pool `projects/870371939888/locations/global/workloadIdentityPools/github`; **new provider `helmsman-github`** (OIDC issuer `https://token.actions.githubusercontent.com`, mapping `google.subject=assertion.sub, attribute.repository=assertion.repository, attribute.ref=assertion.ref`, **attributeCondition `assertion.repository=='smallTechOrg/workshop-helmsman'`**). `roles/iam.workloadIdentityUser` on `helmsman-deployer` for `principalSet://…/attribute.repository/smallTechOrg/workshop-helmsman`. The provider/pool IDs are not secrets and are written in the workflow. Other apps' providers are never modified. |
+| Artifact Registry | docker repo `helmsman`, `us-central1`; images tagged by 12-char git SHA (+ `latest`) |
+| Database bootstrap | `provision.sh` creates DB `helmsman` and user `helmsman_app` via the Cloud SQL Admin API (`gcloud sql databases/users create`), password generated locally (`openssl rand -hex 24`, hex ⇒ URL-safe) and stored **only** in `helmsman-database-url`; on re-run the password is read back from Secret Manager and re-applied, never regenerated. The instance is private-IP-only, so schema privileges cannot be granted from the operator's laptop: `provision.sh` runs `deploy/cloudrun/dbinit.py` as a one-off Cloud Run Job `helmsman-dbinit` (VPC-attached) that probes whether `helmsman_app` can `CREATE TABLE` in `public` and, if not, runs `GRANT helmsman_app TO postgres; ALTER DATABASE helmsman OWNER TO helmsman_app;` using the instance's `postgres` password supplied once via an interactive no-echo prompt → a temporary secret `helmsman-tmp-pgadmin` (stdin) that is deleted (trap) before the script exits. The `postgres` password is never stored. |
+| Logging | structlog JSON on stdout is ingested by Cloud Logging; each line also carries `severity` (mapped from `level`) so Cloud Logging colours/filters correctly. |
+| Phase-4 AI on Cloud Run | `OPENROUTER_API_KEY` from Secret Manager; absent/empty secret value ⇒ air-gapped as before. The FTS5 corpus is SQLite-only; the PostgreSQL tsvector variant (agent.md) is what Phase 4 builds in production. |
+
+**Workshop mode (scale control).** `deploy/cloudrun/workshop-mode.sh on|off|status` reads the serving revision (`status.traffic[0].revisionName`), runs `gcloud run services update helmsman --image <serving image> --min-instances 1|0`, then `update-traffic --to-revisions=<new>=100` (traffic is pinned to a named revision, so a bare update would create a 0%-traffic revision); it is a no-op (`EXISTS`) if the serving revision already has the requested value. The deploy workflow's `workflow_dispatch` has an input `min_instances` (`""` = leave unchanged, `0`, `1`); a normal deploy never changes min-instances (omitting the flag preserves the live value).
+
+**Backup / restore.** Cloud SQL automated backups + PITR are an instance-level setting owned by the instance's owner (shared with other apps) — Helmsman does not alter them. Per-database logical backup: `gcloud sql export sql ai-agent-db gs://<bucket>/helmsman-$(date +%F).sql --database=helmsman` (documented in RUNBOOK, requires a bucket the operator owns).
+
+**Phase status.** Phase 7 (Cloud Run + Cloud SQL) is delivered and merged in its PR; Phase 8 (cutover) retires the VM path. **Snapshot memo:** dropped in Phase 7; revisit (shared, not per-process) only if load testing shows snapshot build is a bottleneck; key was `(workshop_id, state_version)`. The poll `leaderboard` is capped to the top 15 plus the caller's own row.
+
+**Domain.** `workshop0.smalltech.in` is mapped to the service in Phase 8 (Cloud Run domain mapping, supported in `us-central1`; Google-managed certificate). Until then the `*.run.app` URL is the product URL. DNS is at GoDaddy and is a manual human step (exact records in the Phase 8 section of the roadmap). At cutover the operator sets the GitHub repository variable `HELMSMAN_BASE_URL=https://workshop0.smalltech.in`, which the deploy workflow passes to the service, so share links use the pretty domain even if opened via `run.app`.
+
+**Rollback of the whole migration.** The GCE VM (`helmsman-c`, `asia-south1-c`, static IP `35.200.241.145`) is never modified by any phase; it keeps its own SQLite volume. Reverting production (**not currently serving by name**) = in GoDaddy deleting `CNAME workshop0` and adding `A workshop0 -> 35.200.241.145` (TTL 600), **and** on the VM setting `HELMSMAN_DOMAIN=workshop0.smalltech.in` in `/opt/helmsman/.env` (it holds the old `workshops` name; `HELMSMAN_BASE_URL` derives from it) and recreating the stack from `vm-deploy-final:deploy/docker-compose.prod.yml` so the reverse proxy obtains a certificate for the new name. The VM stays untouched until the user retires it. Data written to Cloud SQL after cutover is not on the VM (its SQLite is stale) and is lost unless exported first (documented in RUNBOOK). Cloud Run resources keep the name `helmsman`.
 
 ## Key architectural decisions (summary)
 
@@ -280,7 +342,9 @@ The credential table above is **unchanged**. Creation simply stops requiring the
 |---|---|
 | Versioned coalesced polling, no SSE | Restart/reconnect resilience for free; ~100 req/s of point-reads is trivial; no fan-out state, no proxy pitfalls |
 | Two version counters (`state_version` / `content_version`) | Keeps steady-state polls at ~60 bytes and burst payloads ~10–15 KB; milestone bodies transfer only when edited |
-| Single uvicorn worker + in-process snapshot cache | Correct coalescing without Redis; load fits one process; DB remains sole source of truth |
+| Stateless instances; no in-process snapshot memo (Phase 7) | Cloud Run runs several interchangeable instances; the DB is the sole shared state. Memo dropped (revisit note in §Live-update point 5) and `last_seen_at` throttle moved into the UPDATE's WHERE clause |
+| Cloud Run + shared Cloud SQL Postgres in `us-central1` (Phase 7) | No VM to patch, scale-to-zero cost, automated pipeline with rollback guard; region co-located with the DB because per-query cross-region latency is worse than one user round-trip |
+| Pool budget `max-instances × (pool_size+max_overflow) ≈ 15` | The Cloud SQL instance (max_connections=90) is shared with other apps; Helmsman must never be able to exhaust it |
 | Milestones as a real table (not JSON blob) | Per-milestone stats for 300 participants via indexed GROUP BY; FTS/context queries for the AI phase |
 | Static Next.js export served by FastAPI at `/app/` + pretty-link redirects | Single origin, one process, harness gate path; dynamic tokens carried in query params where the static router needs them, pretty in shared URLs |
 | Lazy lifecycle transitions on access | No scheduler process to crash or restart; correctness derives from the DB clock check |

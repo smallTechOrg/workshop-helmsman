@@ -6,7 +6,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,17 +31,23 @@ def _alembic_config() -> Config:
     return Config(str(REPO_ROOT / "alembic.ini"))
 
 
-def test_upgrade_head_creates_full_schema_and_stamps_revision(monkeypatch, tmp_path):
-    db_path = tmp_path / "migration-test.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+def _use(monkeypatch, url: str) -> None:
+    monkeypatch.setenv("DATABASE_URL", url)
     import src.helmsman.config.settings as settings_module
+    from src.helmsman.db.session import reset_db_state
 
     settings_module._settings = None
+    reset_db_state()
+
+
+def test_upgrade_head_creates_full_schema_and_stamps_revision(monkeypatch, scratch_database):
+    url = scratch_database()
+    _use(monkeypatch, url)
 
     config = _alembic_config()
     command.upgrade(config, "head")
 
-    engine = create_engine(f"sqlite:///{db_path}")
+    engine = create_engine(url)
     try:
         inspector = inspect(engine)
         assert set(inspector.get_table_names()) == EXPECTED_TABLES
@@ -50,9 +56,7 @@ def test_upgrade_head_creates_full_schema_and_stamps_revision(monkeypatch, tmp_p
         assert "help_corpus" not in inspector.get_table_names()
 
         # unique constraints that make the API idempotent/secure
-        workshop_indexes = {
-            idx["name"]: idx for idx in inspector.get_indexes("workshop")
-        }
+        workshop_indexes = {idx["name"]: idx for idx in inspector.get_indexes("workshop")}
         assert workshop_indexes["ix_workshop_admin_token"]["unique"]
         assert workshop_indexes["ix_workshop_join_slug"]["unique"]
         completion_uniques = inspector.get_unique_constraints("milestone_completion")
@@ -63,8 +67,6 @@ def test_upgrade_head_creates_full_schema_and_stamps_revision(monkeypatch, tmp_p
 
         # the stamped revision matches the script head (what `alembic current` prints)
         with engine.connect() as connection:
-            from sqlalchemy import text
-
             stamped = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
         head = ScriptDirectory.from_config(config).get_current_head()
         assert stamped == head
@@ -73,15 +75,43 @@ def test_upgrade_head_creates_full_schema_and_stamps_revision(monkeypatch, tmp_p
         engine.dispose()
 
 
-def test_migrated_schema_serves_the_api(monkeypatch, tmp_path):
-    """App over an alembic-migrated DB (not metadata.create_all) serves the core loop."""
-    db_path = tmp_path / "migrated-api.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
-    import src.helmsman.config.settings as settings_module
-    from src.helmsman.db.session import reset_db_state
+def test_upgrade_head_twice_is_a_noop(monkeypatch, scratch_database):
+    url = scratch_database()
+    _use(monkeypatch, url)
+    config = _alembic_config()
+    command.upgrade(config, "head")
 
-    settings_module._settings = None
-    reset_db_state()
+    engine = create_engine(url)
+    try:
+        before = inspect(engine).get_table_names()
+        command.upgrade(config, "head")
+        assert inspect(engine).get_table_names() == before
+        with engine.connect() as connection:
+            rows = connection.execute(text("SELECT version_num FROM alembic_version")).all()
+        assert [r[0] for r in rows] == [ScriptDirectory.from_config(config).get_current_head()]
+    finally:
+        engine.dispose()
+
+
+def test_downgrade_base_then_upgrade_head_round_trips(monkeypatch, scratch_database):
+    url = scratch_database()
+    _use(monkeypatch, url)
+    config = _alembic_config()
+    command.upgrade(config, "head")
+
+    engine = create_engine(url)
+    try:
+        command.downgrade(config, "base")
+        assert set(inspect(engine).get_table_names()) <= {"alembic_version"}
+        command.upgrade(config, "head")
+        assert set(inspect(engine).get_table_names()) == EXPECTED_TABLES
+    finally:
+        engine.dispose()
+
+
+def test_migrated_schema_serves_the_api(monkeypatch, scratch_database):
+    """App over a freshly alembic-migrated scratch DB serves the core loop."""
+    _use(monkeypatch, scratch_database())
 
     command.upgrade(_alembic_config(), "head")
 

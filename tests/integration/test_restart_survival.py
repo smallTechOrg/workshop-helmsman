@@ -9,11 +9,9 @@ from tests.conftest import TEST_ADMIN_KEY
 def _restart(make_app) -> TestClient:
     import src.helmsman.config.settings as settings_module
     from src.helmsman.db.session import reset_db_state
-    from src.helmsman.services.snapshots import clear_snapshot_cache
 
     settings_module._settings = None
     reset_db_state()
-    clear_snapshot_cache()
     return TestClient(make_app())
 
 

@@ -8,7 +8,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [feature/rebuild-v0.2, main]
+    branches: [feature/rebuild-v0.2, feature/cloud-run-v0.1, main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -17,6 +17,22 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/helmsman_test
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: helmsman_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
@@ -24,8 +40,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --frozen
-      - name: Migrations apply cleanly
+      - name: Migrations apply cleanly (PostgreSQL)
         run: uv run alembic upgrade head
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
       - name: Unit + integration tests
         run: uv run pytest tests/unit tests/integration -q
 
@@ -51,6 +69,21 @@ jobs:
     needs: [backend, frontend-build]
     env:
       HELMSMAN_ADMIN_KEY: ci-admin-key-0123456789
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/helmsman_e2e
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: helmsman_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
