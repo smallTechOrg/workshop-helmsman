@@ -26,7 +26,7 @@
 | E2E testing | Playwright | `@playwright/test`, chromium, config at repo root, tests in `tests/e2e/` |
 | Backend testing | pytest | `tests/unit/`, `tests/integration/` |
 | LLM provider | OpenRouter | key: `OPENROUTER_API_KEY` (exact name — project convention); default model `anthropic/claude-sonnet-4-6` via `HELMSMAN_AI_MODEL` |
-| Deploy (production, Phase 7+) | **Cloud Run + Cloud SQL**, GitHub Actions + Workload Identity Federation | see §Production topology. Supersedes the Phase-5 VM path (Docker Compose + Caddy + SQLite on GCE), which stays working until Phase 8 removes it |
+| Deploy (production, Phase 7+) | **Cloud Run + Cloud SQL**, GitHub Actions + Workload Identity Federation | see §Production topology. Supersedes the Phase-5 VM path (Docker Compose + Caddy + SQLite on GCE), removed from the repo in Phase 8 (recoverable from git tag `vm-deploy-final`) |
 | Deploy (local) | Docker Compose (`deploy/docker-compose.yml`) | SQLite + volume; kept for local dev and self-hosters |
 
 > **Assumed:** Node LTS (22.x) pinned via `frontend/.nvmrc` and `engines`; all frontend `dev`/`build` scripts carry `NODE_OPTIONS=--no-experimental-webstorage` (harness Node ≥25 safety rule).
@@ -107,13 +107,13 @@ workshop-helmsman/                  ← repo root IS the project; all commands r
 │   ├── entrypoint.sh               ← `migrate` subcommand; boot-time migrations opt-in via HELMSMAN_MIGRATE_ON_BOOT
 │   ├── docker-compose.yml          ← local dev (SQLite) — kept
 │   ├── cloudrun/                   ← Phase 7: provision.sh, dbinit.py, workshop-mode.sh · Phase 8: import-data.sh, domain-map.sh
-│   ├── RUNBOOK.md                  ← Phase 8: rewritten for Cloud Run
-│   └── docker-compose.prod.yml, Caddyfile   ← Phase 5 VM path; DELETED in Phase 8
+│   └── RUNBOOK.md                  ← Phase 8: rewritten for Cloud Run (topology, cutover, rollback, VM decommission)
 └── .github/workflows/
     ├── ci.yml                      ← PR/push: tests on a PostgreSQL 17 service container
-    ├── deploy-cloudrun.yml         ← Phase 7: production deploy (WIF → AR → migrate job → revision → traffic)
-    └── deploy.yml                  ← Phase 5 VM deploy: workflow_dispatch-only from Phase 7, DELETED in Phase 8
+    └── deploy-cloudrun.yml         ← production deploy (WIF → AR → migrate job → revision → traffic); push to main + workflow_dispatch (any branch ref)
 ```
+
+> The Phase-5 VM deploy path (`docker-compose.prod.yml`, the reverse-proxy config, `deploy.yml`) was deleted in Phase 8; it remains recoverable from git tag `vm-deploy-final`.
 
 Import convention: the application package is `src.helmsman.*` (the `src` package exists so `uv run python -m src` boots — harness contract).
 
@@ -302,7 +302,7 @@ GitHub Actions ──WIF (no keys)──▶ helmsman-deployer SA
    build image ─▶ Artifact Registry us-central1/helmsman ─▶ Cloud Run Job helmsman-migrate (alembic upgrade head)
         └─▶ Cloud Run service helmsman: new revision --no-traffic (tag candidate) ─▶ health check ─▶ shift 100% ─▶ health check ─▶ (fail ⇒ roll back)
 
-Browser ─HTTPS─▶ Cloud Run (helmsman, 0–3 instances, run.app URL; workshops.smalltech.in via domain mapping in Phase 8)
+Browser ─HTTPS─▶ Cloud Run (helmsman, 0–3 instances, run.app URL; workshops.smalltech.in via Cloud Run domain mapping, Phase 8)
                    └─ Direct VPC egress (network default, subnet default, private-ranges-only) ─TLS─▶ Cloud SQL ai-agent-db 10.110.112.7:5432 / db helmsman
 Secrets: Secret Manager helmsman-* ─(--set-secrets, runtime SA helmsman-run)─▶ env
 ```
@@ -330,9 +330,11 @@ Secrets: Secret Manager helmsman-* ─(--set-secrets, runtime SA helmsman-run)�
 
 **Backup / restore.** Cloud SQL automated backups + PITR are an instance-level setting owned by the instance's owner (shared with other apps) — Helmsman does not alter them. Per-database logical backup: `gcloud sql export sql ai-agent-db gs://<bucket>/helmsman-$(date +%F).sql --database=helmsman` (documented in RUNBOOK, requires a bucket the operator owns).
 
+**Phase status.** Phase 7 (Cloud Run + Cloud SQL) is delivered and merged in its PR; Phase 8 (cutover) retires the VM path. **Snapshot memo:** dropped in Phase 7; revisit (shared, not per-process) only if load testing shows snapshot build is a bottleneck; key was `(workshop_id, state_version)`. The poll `leaderboard` is capped to the top 15 plus the caller's own row.
+
 **Domain.** `workshops.smalltech.in` is mapped to the service in Phase 8 (Cloud Run domain mapping, supported in `us-central1`; Google-managed certificate). Until then the `*.run.app` URL is the product URL. DNS is at GoDaddy and is a manual human step (exact records in the Phase 8 section of the roadmap). At cutover the operator sets the GitHub repository variable `HELMSMAN_BASE_URL=https://workshops.smalltech.in`, which the deploy workflow passes to the service, so share links use the pretty domain even if opened via `run.app`.
 
-**Rollback of the whole migration.** The GCE VM (`helmsman-c`, `asia-south1-c`, static IP `35.200.241.145`) is never modified by any phase; it keeps its own SQLite volume. Reverting production = pointing the GoDaddy record back at the VM. Data written to Cloud Run after cutover is not carried back (documented in RUNBOOK).
+**Rollback of the whole migration.** The GCE VM (`helmsman-c`, `asia-south1-c`, static IP `35.200.241.145`) is never modified by any phase; it keeps its own SQLite volume. Reverting production = deleting the `CNAME` and pointing the GoDaddy record back at the VM (`A workshops 35.200.241.145`, TTL 600); the VM stays untouched until the user retires it. Data written to Cloud Run after cutover is not carried back (documented in RUNBOOK).
 
 ## Key architectural decisions (summary)
 

@@ -1,6 +1,5 @@
 # Workshop Helmsman — local-dev compose: the app only, SQLite in a named volume.
-# (Production is Cloud Run; see deploy/RUNBOOK.md. The VM's Caddy stack lives in
-# docker-compose.prod.yml and is untouched.)
+# (Production is Cloud Run; see deploy/RUNBOOK.md.)
 #
 # Usage, from the repo root:
 #   cp .env.example .env      # set HELMSMAN_ADMIN_KEY

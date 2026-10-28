@@ -44,7 +44,7 @@ The heartbeat: participants work milestones; the facilitator watches the room mo
 **Participant Tracker — `/app/p/?t=<token>`** (pretty `/p/<token>`):
 - Sticky header: workshop name, my **progress bar** with `n / total`, connection indicator.
 - **Milestone checklist**: one card per milestone in position order — checkbox + title + minutes chip + collapsible **markdown body** (instructions, links, code snippets with syntax highlighting + copy-code button). Current milestone (lowest incomplete) is auto-expanded and visually accented; completed ones collapse with a green check. **Mark complete** is optimistic (instant check, reconciled by poll); un-mark available via the checkbox ("fixed a mis-click"). Paused workshop (Phase 2) disables checkboxes with a banner — the Phase 1 payload already carries `paused`.
-- **Leaderboard panel** (side on desktop, tab on mobile): full ranked list, full names always on, my row highlighted and pinned when off-screen; top-3 subtle medals. Renders all rows (virtualized past 50).
+- **Leaderboard panel** (side on desktop, tab on mobile): the top 15 plus my own row (appended with my true rank when I am outside the top 15), full names always on, my row highlighted; top-3 subtle medals. The API caps the payload at 16 rows (see api.md).
 - **Help panel**: C4 below. **Broadcast banner slot**: renders active broadcast (Phase 2 data); in Phase 1 an inline StubBadge in the panel footer notes "Announcements from your facilitator will appear here."
 - Data: `state` poll 3 s (visible) / 15 s (hidden) + `content` fetch keyed by `content_version`. Loading = full-page skeleton mirroring the layout.
 

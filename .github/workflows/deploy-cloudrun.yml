@@ -8,8 +8,8 @@ name: Deploy (Cloud Run)
 # No GCP keys are stored anywhere; the only secrets are the optional
 # OPENROUTER_API_KEY used by the guarded real-key tests.
 #
-# The feature/cloud-run-v0.1 push trigger is Phase-7-only (so the real deploy can
-# be gated before merge); Phase 8 removes it.
+# Pushes to main deploy automatically; any other branch can be deployed by hand
+# with workflow_dispatch (gh workflow run deploy-cloudrun.yml --ref <branch>).
 #
 # Optional repository variable HELMSMAN_BASE_URL (e.g. https://workshops.smalltech.in)
 # is passed to the service so share links use the pretty domain. When unset the
@@ -17,7 +17,7 @@ name: Deploy (Cloud Run)
 
 on:
   push:
-    branches: [main, feature/cloud-run-v0.1]
+    branches: [main]
   workflow_dispatch:
     inputs:
       min_instances:
