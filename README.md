@@ -1,4 +1,4 @@
-# Workshop Helmsman
+# Workshop0
 
 Self-hosted workshop assistant for facilitator-led hands-on technical labs: a facilitator creates a workshop with content-rich milestones, participants join with just a name, and a genuinely live dashboard tracks the whole room — with a built-in help desk.
 
@@ -14,7 +14,7 @@ Self-hosted workshop assistant for facilitator-led hands-on technical labs: a fa
 
 ```bash
 # from the repo root
-cp .env.example .env          # then set HELMSMAN_ADMIN_KEY (any strong string, >=16 chars)
+cp .env.example .env          # then set WORKSHOP0_ADMIN_KEY (any strong string, >=16 chars)
 uv sync
 (cd frontend && pnpm install)
 pnpm install                  # root: Playwright for e2e tests
@@ -23,7 +23,7 @@ pnpm exec playwright install chromium   # only needed to run the e2e suite
 
 ## Database
 
-Local development defaults to SQLite (`data/helmsman.db`); production runs on PostgreSQL (Cloud SQL).
+Local development defaults to SQLite (`data/workshop0.db`); production runs on PostgreSQL (Cloud SQL).
 
 ```bash
 # from the repo root
@@ -49,7 +49,7 @@ Open **http://localhost:8001/** — the public landing page. From there, **Creat
 |---|---|
 | `/` | Public landing page — its **only** URL (served from the static export's `index.html`; returns 503 "frontend not built" if you have not run `pnpm build`). `/app` and `/app/` 307 back here |
 | `/app/create/` | Keyless self-service workshop creation |
-| `/admin` → `/app/admin/` | Admin console — enter your `HELMSMAN_ADMIN_KEY` to see **every** workshop, with its origin (`Admin`/`Public`) and the public creator's email. Not linked from the landing page |
+| `/admin` → `/app/admin/` | Admin console — enter your `WORKSHOP0_ADMIN_KEY` to see **every** workshop, with its origin (`Admin`/`Public`) and the public creator's email. Not linked from the landing page |
 | `/j/<slug>` | Join link — share with the room |
 | `/p/<token>` | Participant personal link |
 | `/f/<token>` | Facilitator dashboard link — the only credential for a workshop; save it |
@@ -63,16 +63,16 @@ The suite runs against **PostgreSQL 17** (the production driver). It refuses any
 ```bash
 # one-time PostgreSQL setup (macOS, from any directory)
 brew install postgresql@17 && brew services start postgresql@17
-createdb helmsman_test
+createdb workshop0_test
 ```
 
 ```bash
 # from the repo root
-export TEST_DATABASE_URL="postgresql+psycopg://$USER@localhost:5432/helmsman_test"
+export TEST_DATABASE_URL="postgresql+psycopg://$USER@localhost:5432/workshop0_test"
 uv run pytest tests/unit tests/integration -q
 ```
 
-If your PostgreSQL listens on another port or needs a password, adjust the URL accordingly (`postgresql+psycopg://user:pass@host:port/helmsman_test`).
+If your PostgreSQL listens on another port or needs a password, adjust the URL accordingly (`postgresql+psycopg://user:pass@host:port/workshop0_test`).
 
 ```bash
 # e2e — from the repo root; build the UI first, then run the server in one terminal ...
@@ -89,7 +89,7 @@ pnpm exec playwright test tests/e2e --reporter=line
 ## Run with Docker (local dev)
 
 ```bash
-# from the repo root (needs .env with HELMSMAN_ADMIN_KEY)
+# from the repo root (needs .env with WORKSHOP0_ADMIN_KEY)
 docker compose -f deploy/docker-compose.yml up --build
 ```
 
@@ -101,33 +101,33 @@ Production is Cloud Run + Cloud SQL (project `ai-agent-boilerplate0`, region `us
 
 ```bash
 # from the repo root — one-time, idempotent provisioning (operator must be gcloud-authenticated;
-# HELMSMAN_ADMIN_KEY and OPENROUTER_API_KEY are read from the environment or .env, never echoed)
+# WORKSHOP0_ADMIN_KEY and OPENROUTER_API_KEY are read from the environment or .env, never echoed)
 bash deploy/cloudrun/provision.sh
 ```
 
 Workshop mode keeps one instance warm (no cold start). Traffic always follows the latest revision, so a plain update is enough:
 
 ```bash
-gcloud run services update helmsman --region us-central1 --project ai-agent-boilerplate0 --min-instances=1   # before the workshop
-gcloud run services update helmsman --region us-central1 --project ai-agent-boilerplate0 --min-instances=0   # after
+gcloud run services update workshop0 --region us-central1 --project ai-agent-boilerplate0 --min-instances=1   # before the workshop
+gcloud run services update workshop0 --region us-central1 --project ai-agent-boilerplate0 --min-instances=0   # after
 ```
 
 ## Environment variables
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | no | `sqlite:///data/helmsman.db` | SQLAlchemy URL; **PostgreSQL in production** |
-| `HELMSMAN_DB_POOL_SIZE` | no | `3` | PostgreSQL pool size (ignored on SQLite) |
-| `HELMSMAN_DB_MAX_OVERFLOW` | no | `2` | PostgreSQL pool overflow |
-| `HELMSMAN_MIGRATE_ON_BOOT` | no | `1` | `1` → the container entrypoint runs `alembic upgrade head` before serving; Cloud Run sets `0` (migrations run in the `helmsman-migrate` job) |
+| `DATABASE_URL` | no | `sqlite:///data/workshop0.db` | SQLAlchemy URL; **PostgreSQL in production** |
+| `WORKSHOP0_DB_POOL_SIZE` | no | `3` | PostgreSQL pool size (ignored on SQLite) |
+| `WORKSHOP0_DB_MAX_OVERFLOW` | no | `2` | PostgreSQL pool overflow |
+| `WORKSHOP0_MIGRATE_ON_BOOT` | no | `1` | `1` → the container entrypoint runs `alembic upgrade head` before serving; Cloud Run sets `0` (migrations run in the `workshop0-migrate` job) |
 | `TEST_DATABASE_URL` | tests only | — | PostgreSQL URL of a throwaway `*_test` database |
 | `PORT` | no | `8001` | HTTP port (Cloud Run injects `8080`) |
-| `HELMSMAN_ADMIN_KEY` | **yes** | — | Facilitator access key for Admin Home |
-| `HELMSMAN_BASE_URL` | no | derived from request | Absolute base for generated share links |
-| `HELMSMAN_LOG_LEVEL` | no | `INFO` | Log level (structlog, JSON to stdout) |
+| `WORKSHOP0_ADMIN_KEY` | **yes** | — | Facilitator access key for Admin Home |
+| `WORKSHOP0_BASE_URL` | no | derived from request | Absolute base for generated share links |
+| `WORKSHOP0_LOG_LEVEL` | no | `INFO` | Log level (structlog, JSON to stdout) |
 | `OPENROUTER_API_KEY` | no | — | AI help-desk (Phase 4); absent = fully air-gapped |
-| `HELMSMAN_AI_MODEL` | no | `anthropic/claude-sonnet-4-6` | OpenRouter model id |
-| `HELMSMAN_AI_CONFIDENCE` | no | `0.75` | AI auto-answer confidence threshold |
+| `WORKSHOP0_AI_MODEL` | no | `anthropic/claude-sonnet-4-6` | OpenRouter model id |
+| `WORKSHOP0_AI_CONFIDENCE` | no | `0.75` | AI auto-answer confidence threshold |
 
 ## Status
 

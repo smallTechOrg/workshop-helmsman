@@ -1,8 +1,8 @@
-# Workshop Helmsman — local-dev compose: the app only, SQLite in a named volume.
+# Workshop0 — local-dev compose: the app only, SQLite in a named volume.
 # (Production is Cloud Run; see deploy/RUNBOOK.md.)
 #
 # Usage, from the repo root:
-#   cp .env.example .env      # set HELMSMAN_ADMIN_KEY
+#   cp .env.example .env      # set WORKSHOP0_ADMIN_KEY
 #   docker compose -f deploy/docker-compose.yml up --build
 # then open http://localhost:8001/
 
@@ -11,19 +11,19 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: workshop-helmsman:latest
+    image: workshop0:latest
     restart: unless-stopped
-    # Secrets/config (HELMSMAN_ADMIN_KEY, OPENROUTER_API_KEY, optional
-    # HELMSMAN_BASE_URL ...) come from the repo-root .env.
+    # Secrets/config (WORKSHOP0_ADMIN_KEY, OPENROUTER_API_KEY, optional
+    # WORKSHOP0_BASE_URL ...) come from the repo-root .env.
     env_file:
       - path: ../.env
         required: false
     environment:
       PORT: "8001"
-      DATABASE_URL: "sqlite:///data/helmsman.db"
-      HELMSMAN_MIGRATE_ON_BOOT: "1"
+      DATABASE_URL: "sqlite:///data/workshop0.db"
+      WORKSHOP0_MIGRATE_ON_BOOT: "1"
     volumes:
-      - helmsman-data:/srv/helmsman/data
+      - workshop0-data:/srv/workshop0/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8001/api/health').status==200 else sys.exit(1)"]
       interval: 30s
@@ -34,4 +34,4 @@ services:
       - "8001:8001"
 
 volumes:
-  helmsman-data:
+  workshop0-data:

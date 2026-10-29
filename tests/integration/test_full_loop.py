@@ -130,8 +130,8 @@ def test_full_core_loop(client, make_client, workshop, join_participant):
     assert dashboard["stats"]["resolved_help_count"] == 1
 
     # Audit trail: workshop.create + help.answer recorded
-    from src.helmsman.db.models import FacilitatorAction
-    from src.helmsman.db.session import create_db_session
+    from src.workshop0.db.models import FacilitatorAction
+    from src.workshop0.db.session import create_db_session
 
     with create_db_session() as session:
         actions = [
@@ -155,8 +155,8 @@ def test_facilitator_resolve_writes_audit_row(client, make_client, workshop, joi
     ).json()["data"]
     assert resolved["help_request"]["status"] == "resolved"
 
-    from src.helmsman.db.models import FacilitatorAction
-    from src.helmsman.db.session import create_db_session
+    from src.workshop0.db.models import FacilitatorAction
+    from src.workshop0.db.session import create_db_session
 
     with create_db_session() as session:
         row = session.scalar(

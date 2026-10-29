@@ -7,9 +7,9 @@ from sqlalchemy import engine_from_config, pool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.helmsman.config.settings import get_settings
-from src.helmsman.db.models import Base
-from src.helmsman.db.session import _ensure_sqlite_parent_dir
+from src.workshop0.config.settings import get_settings
+from src.workshop0.db.models import Base
+from src.workshop0.db.session import _ensure_sqlite_parent_dir
 
 config = context.config
 
@@ -20,7 +20,7 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    """DATABASE_URL from the environment / .env; default sqlite:///data/helmsman.db."""
+    """DATABASE_URL from the environment / .env; default sqlite:///data/workshop0.db."""
     url = get_settings().database_url
     if url.startswith("sqlite"):
         _ensure_sqlite_parent_dir(url)

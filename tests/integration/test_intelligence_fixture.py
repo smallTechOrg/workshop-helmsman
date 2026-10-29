@@ -6,9 +6,9 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 
-from src.helmsman.api._common import utcnow
-from src.helmsman.db.models import MilestoneCompletion, Participant
-from src.helmsman.db.session import create_db_session
+from src.workshop0.api._common import utcnow
+from src.workshop0.db.models import MilestoneCompletion, Participant
+from src.workshop0.db.session import create_db_session
 
 FOUR_MILESTONES_BODY = {
     "name": "Big Workshop",

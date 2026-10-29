@@ -8,7 +8,9 @@
  * say so plainly.
  */
 
-const LS_KEY = "helmsman_my_workshops";
+import { getWithLegacy } from "./storageCompat";
+
+const LS_KEY = "workshop0_my_workshops";
 const MAX_ENTRIES = 20;
 
 export interface LocalWorkshop {
@@ -34,7 +36,7 @@ export function loadLocalWorkshops(): LocalWorkshop[] {
   if (typeof window === "undefined") return [];
   let raw: string | null = null;
   try {
-    raw = window.localStorage.getItem(LS_KEY);
+    raw = getWithLegacy(LS_KEY);
   } catch {
     return [];
   }

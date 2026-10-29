@@ -1,8 +1,8 @@
 name: Deploy (Cloud Run)
 
-# Keyless (Workload Identity Federation) deploy of Workshop Helmsman to Cloud Run.
+# Keyless (Workload Identity Federation) deploy of Workshop0 to Cloud Run.
 #   test   -> unit + integration suite against a postgres:17 service container
-#   deploy -> build + push image, run the helmsman-migrate job, deploy a
+#   deploy -> build + push image, run the workshop0-migrate job, deploy a
 #             no-traffic candidate revision, health-check it, route traffic to LATEST,
 #             health-check again; on any failure restore the previous revision.
 # No GCP keys are stored anywhere; the only secrets are the optional
@@ -11,7 +11,7 @@ name: Deploy (Cloud Run)
 # Pushes to main deploy automatically; any other branch can be deployed by hand
 # with workflow_dispatch (gh workflow run deploy-cloudrun.yml --ref <branch>).
 #
-# Optional repository variable HELMSMAN_BASE_URL (e.g. https://workshop0.smalltech.in)
+# Optional repository variable WORKSHOP0_BASE_URL (e.g. https://workshop0.smalltech.in)
 # is passed to the service so share links use the pretty domain. When unset the
 # service derives the base URL from the request (proxy headers).
 
@@ -41,7 +41,7 @@ concurrency:
 env:
   PROJECT_ID: ai-agent-boilerplate0
   REGION: us-central1
-  SERVICE: helmsman
+  SERVICE: workshop0
 
 jobs:
   test:
@@ -52,7 +52,7 @@ jobs:
         image: postgres:17
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: helmsman_test
+          POSTGRES_DB: workshop0_test
         ports:
           - 5432:5432
         options: >-
@@ -61,8 +61,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/helmsman_test
-      HELMSMAN_ADMIN_KEY: ci-admin-key-0123456789
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/workshop0_test
+      WORKSHOP0_ADMIN_KEY: ci-admin-key-0123456789
       # Real-key tests are guarded: they skip when this secret is absent.
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
@@ -81,10 +81,10 @@ jobs:
     needs: test
     env:
       REGISTRY: us-central1-docker.pkg.dev
-      RUNTIME_SA: helmsman-run@ai-agent-boilerplate0.iam.gserviceaccount.com
+      RUNTIME_SA: workshop0-run@ai-agent-boilerplate0.iam.gserviceaccount.com
       MIN_INSTANCES_INPUT: ${{ inputs.min_instances }}
       DRILL_ROLLBACK: ${{ inputs.drill_rollback }}
-      BASE_URL_VAR: ${{ vars.HELMSMAN_BASE_URL }}
+      BASE_URL_VAR: ${{ vars.WORKSHOP0_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -93,7 +93,7 @@ jobs:
         run: |
           set -euo pipefail
           SHA12="${GITHUB_SHA::12}"
-          IMAGE="${REGISTRY}/${PROJECT_ID}/helmsman/helmsman"
+          IMAGE="${REGISTRY}/${PROJECT_ID}/workshop0/workshop0"
           {
             echo "SHA12=${SHA12}"
             echo "IMAGE=${IMAGE}"
@@ -103,8 +103,8 @@ jobs:
       - name: Authenticate to Google Cloud (Workload Identity Federation)
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: projects/870371939888/locations/global/workloadIdentityPools/github/providers/helmsman-github
-          service_account: helmsman-deployer@ai-agent-boilerplate0.iam.gserviceaccount.com
+          workload_identity_provider: projects/870371939888/locations/global/workloadIdentityPools/github/providers/workshop0-github
+          service_account: workshop0-deployer@ai-agent-boilerplate0.iam.gserviceaccount.com
 
       - uses: google-github-actions/setup-gcloud@v2
         with:
@@ -150,7 +150,7 @@ jobs:
       - name: Create or update the migrate job
         run: |
           set -euo pipefail
-          gcloud run jobs deploy helmsman-migrate \
+          gcloud run jobs deploy workshop0-migrate \
             --region "$REGION" \
             --image "$IMAGE_REF" \
             --service-account "$RUNTIME_SA" \
@@ -158,11 +158,11 @@ jobs:
             --max-retries 0 --task-timeout 600 \
             --cpu 1 --memory 512Mi \
             --network=default --subnet=default --vpc-egress=private-ranges-only \
-            --set-env-vars HELMSMAN_MIGRATE_ON_BOOT=0 \
-            --set-secrets "DATABASE_URL=helmsman-database-url:latest,OPENROUTER_API_KEY=helmsman-openrouter-api-key:latest,HELMSMAN_ADMIN_KEY=helmsman-admin-key:latest"
+            --set-env-vars WORKSHOP0_MIGRATE_ON_BOOT=0 \
+            --set-secrets "DATABASE_URL=workshop0-database-url:latest,OPENROUTER_API_KEY=workshop0-openrouter-api-key:latest,WORKSHOP0_ADMIN_KEY=workshop0-admin-key:latest"
 
       - name: Run migrations (before any traffic reaches the new revision)
-        run: gcloud run jobs execute helmsman-migrate --region "$REGION" --wait
+        run: gcloud run jobs execute workshop0-migrate --region "$REGION" --wait
 
       - name: Deploy the new revision
         run: |
@@ -176,9 +176,9 @@ jobs:
           fi
           echo "NEW_REVISION=${SERVICE}-${SUFFIX}" >> "$GITHUB_ENV"
 
-          ENVVARS="HELMSMAN_MIGRATE_ON_BOOT=0"
+          ENVVARS="WORKSHOP0_MIGRATE_ON_BOOT=0"
           if [ -n "${BASE_URL_VAR:-}" ]; then
-            ENVVARS="${ENVVARS}@HELMSMAN_BASE_URL=${BASE_URL_VAR}"
+            ENVVARS="${ENVVARS}@WORKSHOP0_BASE_URL=${BASE_URL_VAR}"
           fi
 
           ARGS=(
@@ -191,7 +191,7 @@ jobs:
             --cpu-boost --no-cpu-throttling
             --network=default --subnet=default --vpc-egress=private-ranges-only
             --set-env-vars "^@^${ENVVARS}"
-            --set-secrets "DATABASE_URL=helmsman-database-url:latest,OPENROUTER_API_KEY=helmsman-openrouter-api-key:latest,HELMSMAN_ADMIN_KEY=helmsman-admin-key:latest"
+            --set-secrets "DATABASE_URL=workshop0-database-url:latest,OPENROUTER_API_KEY=workshop0-openrouter-api-key:latest,WORKSHOP0_ADMIN_KEY=workshop0-admin-key:latest"
             --revision-suffix "$SUFFIX"
           )
           # A normal deploy never changes min-instances (omitting preserves the live value).

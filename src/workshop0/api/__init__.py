@@ -14,9 +14,9 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 
-from src.helmsman import __version__
-from src.helmsman.config.settings import get_settings
-from src.helmsman.observability.logging import RequestLoggingMiddleware, configure_logging
+from src.workshop0 import __version__
+from src.workshop0.config.settings import get_settings
+from src.workshop0.observability.logging import RequestLoggingMiddleware, configure_logging
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_OUT_DIR = _REPO_ROOT / "frontend" / "out"
@@ -40,13 +40,13 @@ def create_app() -> FastAPI:
     settings = get_settings()
     if not settings.resolved_admin_key:
         raise RuntimeError(
-            "HELMSMAN_ADMIN_KEY is not set. Add it to .env (see .env.example) — "
+            "WORKSHOP0_ADMIN_KEY is not set. Add it to .env (see .env.example) — "
             "the facilitator access key is required to start."
         )
     configure_logging(settings.resolved_log_level)
-    log = structlog.get_logger("helmsman")
+    log = structlog.get_logger("workshop0")
 
-    app = FastAPI(title="Workshop Helmsman", version=__version__, docs_url=None, redoc_url=None)
+    app = FastAPI(title="Workshop0", version=__version__, docs_url=None, redoc_url=None)
     app.add_middleware(RequestLoggingMiddleware)
 
     @app.exception_handler(RequestValidationError)
@@ -60,7 +60,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def _internal_error_handler(request: Request, exc: Exception):
-        structlog.get_logger("helmsman").error(
+        structlog.get_logger("workshop0").error(
             "internal_error", path=request.url.path, error=repr(exc)
         )
         return JSONResponse(
@@ -73,7 +73,7 @@ def create_app() -> FastAPI:
             },
         )
 
-    from src.helmsman.api import admin, facilitator, health, participant, public
+    from src.workshop0.api import admin, facilitator, health, participant, public
 
     app.include_router(health.router)
     app.include_router(admin.router)

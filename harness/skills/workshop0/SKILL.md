@@ -1,9 +1,9 @@
 ---
-name: workshop-helmsman
-description: Operate the Workshop Helmsman tracker server — boot it, inspect state, archive workshops, or rebuild the DB.
+name: workshop0
+description: Operate the Workshop0 tracker server — boot it, inspect state, archive workshops, or rebuild the DB.
 ---
 
-# Workshop Helmsman Skill
+# Workshop0 Skill
 
 Local, self-hosted milestone tracker for remote workshops. Intended deployment
 at `workshop.smalltech.in`.
@@ -18,7 +18,7 @@ at `workshop.smalltech.in`.
 ## Boot (local dev)
 
 ```sh
-cd /Users/sai/workshop-helmsman
+cd /Users/sai/workshop0
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 venv/bin/python -m src          # http://localhost:8001
@@ -30,7 +30,7 @@ Stop: `pkill -f 'python -m src'`.
 ## Inspect DB
 
 ```sh
-sqlite3 /Users/sai/workshop-helmsman/data/helmsman.db
+sqlite3 /Users/sai/workshop0/data/workshop0.db
 .tables
 .headers on
 SELECT id, name, admin_token, participant_slug, archived, expires_at FROM workshop;

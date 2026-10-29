@@ -228,8 +228,8 @@ def test_migration_0004_adds_the_columns_and_backfills_existing_rows(monkeypatch
     """Upgrade to 0003, insert a pre-Phase-6 row, then upgrade to 0004."""
     db_url = scratch_database()
     monkeypatch.setenv("DATABASE_URL", db_url)
-    import src.helmsman.config.settings as settings_module
-    from src.helmsman.db.session import reset_db_state
+    import src.workshop0.config.settings as settings_module
+    from src.workshop0.db.session import reset_db_state
 
     settings_module._settings = None
     reset_db_state()
@@ -274,7 +274,7 @@ def test_migration_0004_adds_the_columns_and_backfills_existing_rows(monkeypatch
     # and the migrated schema serves both create routes
     from fastapi.testclient import TestClient
 
-    from src.helmsman.api import create_app
+    from src.workshop0.api import create_app
 
     client = TestClient(create_app())
     public = client.post("/api/public/workshops", json=PUBLIC_BODY)

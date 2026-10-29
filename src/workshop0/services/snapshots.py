@@ -7,8 +7,8 @@ from statistics import median
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.helmsman.api._common import as_utc, iso_z, utcnow
-from src.helmsman.db.models import (
+from src.workshop0.api._common import as_utc, iso_z, utcnow
+from src.workshop0.db.models import (
     Broadcast,
     HelpAnswer,
     HelpRequest,
@@ -17,8 +17,8 @@ from src.helmsman.db.models import (
     Participant,
     Workshop,
 )
-from src.helmsman.services.intelligence import compute_bottleneck, compute_pulse, compute_stuck
-from src.helmsman.services.milestone_input import load_input_config
+from src.workshop0.services.intelligence import compute_bottleneck, compute_pulse, compute_stuck
+from src.workshop0.services.milestone_input import load_input_config
 
 ACTIVE_WINDOW_SECONDS = 300
 RESOLVED_QUEUE_LIMIT = 50

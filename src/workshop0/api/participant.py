@@ -9,15 +9,15 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from src.helmsman.services.join_form import JoinFormError, validate_answers
-from src.helmsman.services.milestone_input import (
+from src.workshop0.services.join_form import JoinFormError, validate_answers
+from src.workshop0.services.milestone_input import (
     MilestoneInputError,
     load_input_config,
     validate_input_value,
 )
 
-from src.helmsman.api._common import api_error, iso_z, ok, request_base_url, utcnow, as_utc
-from src.helmsman.db.models import (
+from src.workshop0.api._common import api_error, iso_z, ok, request_base_url, utcnow, as_utc
+from src.workshop0.db.models import (
     HelpAnswer,
     HelpRequest,
     Milestone,
@@ -25,13 +25,13 @@ from src.helmsman.db.models import (
     Participant,
     Workshop,
 )
-from src.helmsman.db.session import get_session
-from src.helmsman.security import (
+from src.workshop0.db.session import get_session
+from src.workshop0.security import (
     generate_participant_token,
     participant_by_token,
     workshop_by_join_slug,
 )
-from src.helmsman.services.snapshots import (
+from src.workshop0.services.snapshots import (
     bump_state_version,
     participant_shared_snapshot,
     progress_pct,
@@ -39,7 +39,7 @@ from src.helmsman.services.snapshots import (
     serialize_room_question,
 )
 
-log = structlog.get_logger("helmsman")
+log = structlog.get_logger("workshop0")
 
 router = APIRouter(prefix="/api")
 
@@ -94,7 +94,11 @@ class HelpBody(BaseModel):
 
 
 def _cookie_name(workshop_id: int) -> str:
-    return f"helmsman_p_{workshop_id}"
+    return f"workshop0_p_{workshop_id}"
+
+
+def _legacy_cookie_name(workshop_id: int) -> str:
+    return f"helmsman_p_{workshop_id}"  # LEGACY-COMPAT read-only fallback for one release
 
 
 def _guard_not_archived(workshop: Workshop) -> None:
@@ -157,7 +161,9 @@ def get_join_page(
     )
 
     me = None
-    cookie_token = request.cookies.get(_cookie_name(workshop.id))
+    cookie_token = request.cookies.get(_cookie_name(workshop.id)) or request.cookies.get(
+        _legacy_cookie_name(workshop.id)
+    )
     if cookie_token:
         participant = session.scalar(
             select(Participant).where(Participant.token == cookie_token)

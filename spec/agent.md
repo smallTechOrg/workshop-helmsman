@@ -1,4 +1,4 @@
-# AI Help-Desk — Workshop Helmsman (v0.2)
+# AI Help-Desk — Workshop0 (v0.2)
 
 The AI layer arrives in **Phase 4**, but this design is fixed now: the schema (data-model.md), the API surface (api.md), and this pipeline are designed once so Phase 4 wires — it does not redesign.
 
@@ -11,7 +11,7 @@ Patterns used (from the catalogue): **#2 Routing** (confidence-gated auto-answer
 ## Entry point
 
 ```python
-# src/helmsman/ai/pipeline.py
+# src/workshop0/ai/pipeline.py
 def run_help_desk(help_request_id: int) -> None: ...
 ```
 
@@ -31,14 +31,14 @@ Collected into the exact structure stored as `help_answer.ai_context_json` (data
 
 - **Corpus maintenance (app code, no triggers):** when a request reaches `resolved`, or a facilitator answers it, insert one row into `help_corpus` (message, human-visible resolution, milestone title, ids). Draft-only and unanswered requests never enter the corpus. The corpus is derived data — rebuildable from `help_request` + `help_answer` by a maintenance function, so the DB-is-truth rule holds.
 - **Query construction:** tokenize the incoming message + current milestone title; drop stopwords and tokens <3 chars; take the top 12 remaining tokens; build an FTS5 `OR` query of **double-quoted** tokens (quoting neutralizes FTS5 operator injection from user text). Rank with `bm25(help_corpus)`, `LIMIT 5`.
-- **PostgreSQL (the production target from Phase 7):** on a PostgreSQL `DATABASE_URL` the corpus is a plain `help_corpus` table with a generated `tsvector` column + GIN index, queried with `websearch_to_tsquery`/`to_tsquery` over the same sanitized tokens (OR-joined) and ranked by `ts_rank` — same interface (`corpus.search(text) -> list[Hit]`). Phase 4's gate therefore runs on PostgreSQL (harness Rule 5); the FTS5 variant is the local-dev path only. The dialect switch lives in `corpus.py`; its migration is dialect-guarded (FTS5 on SQLite, tsvector table on PostgreSQL). `src/helmsman/ai/corpus.py` isolates the dialect switch.
+- **PostgreSQL (the production target from Phase 7):** on a PostgreSQL `DATABASE_URL` the corpus is a plain `help_corpus` table with a generated `tsvector` column + GIN index, queried with `websearch_to_tsquery`/`to_tsquery` over the same sanitized tokens (OR-joined) and ranked by `ts_rank` — same interface (`corpus.search(text) -> list[Hit]`). Phase 4's gate therefore runs on PostgreSQL (harness Rule 5); the FTS5 variant is the local-dev path only. The dialect switch lives in `corpus.py`; its migration is dialect-guarded (FTS5 on SQLite, tsvector table on PostgreSQL). `src/workshop0/ai/corpus.py` isolates the dialect switch.
 
 ## Step 2 — One LLM call: triage + answer combined
 
 One call, not two — the triage signal (confidence) and the candidate answer come from the same completion, halving cost and latency.
 
-- **Provider:** OpenRouter `POST /api/v1/chat/completions` via httpx. Model: `HELMSMAN_AI_MODEL` (default `anthropic/claude-sonnet-4-6`). Timeout 30 s; **one retry** on timeout/5xx with 2 s backoff. Request includes `usage: {"include": true}` so the response carries token counts and `usage.cost`.
-- **Prompts** live as markdown files in `src/helmsman/ai/prompts/` (`helpdesk_system.md`, `helpdesk_user.md` — user template interpolates the context block). System prompt outline:
+- **Provider:** OpenRouter `POST /api/v1/chat/completions` via httpx. Model: `WORKSHOP0_AI_MODEL` (default `anthropic/claude-sonnet-4-6`). Timeout 30 s; **one retry** on timeout/5xx with 2 s backoff. Request includes `usage: {"include": true}` so the response carries token counts and `usage.cost`.
+- **Prompts** live as markdown files in `src/workshop0/ai/prompts/` (`helpdesk_system.md`, `helpdesk_user.md` — user template interpolates the context block). System prompt outline:
   - You are the AI help-desk for a live hands-on technical workshop; a participant is stuck **right now** — be concise, concrete, actionable (≤150 words), markdown with code blocks where useful, formatted code (real newlines/indentation).
   - You are given: their progress, the milestone instructions they are on, and similar past requests with how a human facilitator resolved them. Prefer approaches proven in past resolutions; never invent workshop-specific facts (URLs, credentials, file names) not present in the context.
   - Report honest confidence: high only when the milestone content or a past resolution clearly covers the problem. If the request needs information you don't have (machine-specific state, account issues, anything ambiguous), answer with your best guidance but report low confidence.
@@ -48,7 +48,7 @@ One call, not two — the triage signal (confidence) and the candidate answer co
 
 ## Step 3 — Route on confidence
 
-Threshold: `HELMSMAN_AI_CONFIDENCE` (default **0.75**), compared against post-guardrail confidence.
+Threshold: `WORKSHOP0_AI_CONFIDENCE` (default **0.75**), compared against post-guardrail confidence.
 
 **Confident (≥ threshold) → auto-answer:**
 - Insert `help_answer(source="ai", draft=false, ai_confidence, ai_model, ai_context_json)`; request → `answered`, `ai_state = "answered"`; bump `state_version`.

@@ -1,4 +1,4 @@
-# API Contract — Workshop Helmsman (v0.2)
+# API Contract — Workshop0 (v0.2)
 
 This is the contract both generators build against **in parallel** — the backend implements it exactly; the frontend consumes it exactly. Nothing here is aspirational: field names, casing, and shapes are normative.
 
@@ -11,7 +11,7 @@ This is the contract both generators build against **in parallel** — the backe
 - **Error envelope:** HTTP 4xx/5xx → `{"detail": {"code": "<machine_code>", "message": "<human sentence>"}}`. Pydantic validation failures are converted by an exception handler into this same shape (`code: "validation_error"`, message = first human-readable error) — the raw FastAPI 422 array shape never reaches clients.
 - **Auth:** three schemes — `X-Admin-Key` header (admin surface), `admin_token` path segment (facilitator surface), `participant_token` path segment (participant surface). See architecture.md §Auth.
 - **Versioned polling:** poll endpoints take `?v=<int>` (last-seen `state_version`; default `-1` = always changed). Unchanged → `{"changed": false, "version": N, "content_version": M}`. The content endpoint uses `?cv=<int>` against `content_version` the same way. Every mutation response includes `"version"` (the new `state_version`) so clients re-poll immediately.
-- **URL fields** (`join_url`, `facilitator_url`, `participant_url`) are absolute, built from `HELMSMAN_BASE_URL` (or the request origin) + the pretty paths `/j/{slug}`, `/f/{admin_token}`, `/p/{participant_token}`.
+- **URL fields** (`join_url`, `facilitator_url`, `participant_url`) are absolute, built from `WORKSHOP0_BASE_URL` (or the request origin) + the pretty paths `/j/{slug}`, `/f/{admin_token}`, `/p/{participant_token}`.
 - **Draft AI answers (`draft: true`) appear only in facilitator payloads — never in participant payloads.** `ai_context` appears only in facilitator payloads.
 
 ### Error code catalogue
@@ -142,11 +142,11 @@ Response: `{"data": {"help_request": <row>, "version": 44}, "error": null}`.
   "me": null
 }, "error": null}
 ```
-If the browser carries a valid `helmsman_p_{workshop_id}` cookie, `"me": {"participant_token": "<22 chars>", "name": "Priya"}` — the page then forwards to the tracker without re-joining. Errors: `not_found`.
+If the browser carries a valid `workshop0_p_{workshop_id}` cookie (or, for one release after the Phase 9 rename, the legacy-named cookie for that workshop — see architecture.md §Auth model), `"me": {"participant_token": "<22 chars>", "name": "Priya"}` — the page then forwards to the tracker without re-joining. Errors: `not_found`.
 
 ### `POST /api/join/{join_slug}`
 Body: `{"name": "Priya"}` (1–80 trimmed; duplicates allowed). *(Phase 3 adds `"answers": {…}` for custom join fields.)*
-Effect: create participant; **set cookie** `helmsman_p_{workshop_id}=<participant_token>; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`; bump version.
+Effect: create participant; **set cookie** `workshop0_p_{workshop_id}=<participant_token>; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`; bump version.
 ```json
 {"data": {"participant_token": "<22 chars>", "participant_url": "…/p/<token>", "name": "Priya"}, "error": null}
 ```
@@ -272,7 +272,7 @@ Phase 4 **activates** (shapes normative now): dashboard `"spend": {"total_cost_u
 
 ## `POST /api/public/workshops` — **no auth** (no `X-Admin-Key`, no token)
 
-The keyless twin of `POST /api/admin/workshops`. Both routes call the **same** creation service (`src/helmsman/services/workshops.py` → `create_workshop(session, spec, *, created_via, creator_email, base_url)`), so the two paths cannot drift; the public route differs only in the auth dependency (none), the required `creator_email`, and `created_via="public"`.
+The keyless twin of `POST /api/admin/workshops`. Both routes call the **same** creation service (`src/workshop0/services/workshops.py` → `create_workshop(session, spec, *, created_via, creator_email, base_url)`), so the two paths cannot drift; the public route differs only in the auth dependency (none), the required `creator_email`, and `created_via="public"`.
 
 Request — identical to the admin body plus `creator_email`:
 ```json

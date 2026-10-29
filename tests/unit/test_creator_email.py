@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from src.helmsman.services.workshops import (
+from src.workshop0.services.workshops import (
     PublicWorkshopCreate,
     mask_email,
     normalize_creator_email,

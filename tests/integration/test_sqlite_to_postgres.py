@@ -145,9 +145,9 @@ def test_small_batch_size_gives_identical_result(source, target):
 
 
 def _api_payloads(monkeypatch, url: str, participant_token: str, admin_token: str) -> dict:
-    import src.helmsman.config.settings as settings_module
-    from src.helmsman.api import create_app
-    from src.helmsman.db.session import reset_db_state
+    import src.workshop0.config.settings as settings_module
+    from src.workshop0.api import create_app
+    from src.workshop0.db.session import reset_db_state
 
     monkeypatch.setenv("DATABASE_URL", url)
     settings_module._settings = None
@@ -197,9 +197,9 @@ def test_sequences_reset_so_fresh_inserts_get_ids_above_imported_max(monkeypatch
     sconn.close()
 
     # Through the real app: a brand-new participant gets max(id)+1, not a duplicate-key error.
-    import src.helmsman.config.settings as settings_module
-    from src.helmsman.api import create_app
-    from src.helmsman.db.session import reset_db_state
+    import src.workshop0.config.settings as settings_module
+    from src.workshop0.api import create_app
+    from src.workshop0.db.session import reset_db_state
 
     monkeypatch.setenv("DATABASE_URL", target)
     settings_module._settings = None

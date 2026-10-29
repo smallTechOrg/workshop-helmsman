@@ -1,10 +1,10 @@
-# Vision — Workshop Helmsman (v0.2)
+# Vision — Workshop0 (v0.2)
 
 > This spec supersedes v0.1 entirely, including all v0.1 non-goals (notably "no React / no build step" — v0.2 is a Next.js frontend by explicit user choice). The v0.1 code in `src/` and `frontend/` is removed at scaffold; v0.2 is built fresh from this spec.
 
 ## What it is
 
-Workshop Helmsman is a **self-hosted workshop assistant for facilitator-led, hands-on technical labs**. A facilitator creates a workshop, shares one join link, and 100–300+ participants work through a checklist of **content-rich milestones** (full markdown instructions, links, code snippets) on their own devices. The facilitator watches a **genuinely live dashboard** — per-milestone completion, cohort distribution, a help queue — and intervenes with broadcasts, milestone controls, and answers. An **AI help-desk** (OpenRouter) triages help requests: it gathers the participant's context and past resolutions, auto-answers when confident (clearly badged, one tap to escalate to a human), and drafts a reply for facilitator review when unsure. Without an API key, the entire product works air-gapped with zero errors.
+Workshop0 is a **self-hosted workshop assistant for facilitator-led, hands-on technical labs**. A facilitator creates a workshop, shares one join link, and 100–300+ participants work through a checklist of **content-rich milestones** (full markdown instructions, links, code snippets) on their own devices. The facilitator watches a **genuinely live dashboard** — per-milestone completion, cohort distribution, a help queue — and intervenes with broadcasts, milestone controls, and answers. An **AI help-desk** (OpenRouter) triages help requests: it gathers the participant's context and past resolutions, auto-answers when confident (clearly badged, one tap to escalate to a human), and drafts a reply for facilitator review when unsure. Without an API key, the entire product works air-gapped with zero errors.
 
 It is production-grade from day one: real workshops with external participants depend on it, so polish, resilience, and first-time-right behavior are the bar — not aspirations.
 

@@ -610,7 +610,7 @@ wheels = [
 ]
 
 [[package]]
-name = "workshop-helmsman"
+name = "workshop0"
 version = "0.2.0"
 source = { virtual = "." }
 dependencies = [

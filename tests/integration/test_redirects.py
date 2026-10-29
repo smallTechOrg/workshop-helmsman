@@ -1,6 +1,6 @@
 import pytest
 
-from src.helmsman.api import LANDING_HTML
+from src.workshop0.api import LANDING_HTML
 
 
 @pytest.mark.parametrize(
@@ -25,7 +25,7 @@ def test_root_serves_the_landing_page_html_when_the_export_is_built(
     client, monkeypatch, tmp_path
 ):
     """Deterministic in CI: point at a stand-in export so the built case always runs."""
-    import src.helmsman.api as api_module
+    import src.workshop0.api as api_module
 
     landing = LANDING_HTML if LANDING_HTML.is_file() else tmp_path / "index.html"
     if landing != LANDING_HTML:
@@ -42,7 +42,7 @@ def test_root_serves_the_landing_page_html_when_the_export_is_built(
 def test_root_returns_503_when_the_export_is_missing(client, monkeypatch, tmp_path):
     """No `pnpm build` → a clear 503. It must NOT redirect to `/app/`, which
     now redirects back to `/` (that would be an infinite loop)."""
-    import src.helmsman.api as api_module
+    import src.workshop0.api as api_module
 
     monkeypatch.setattr(api_module, "LANDING_HTML", tmp_path / "not-built" / "index.html")
     response = client.get("/", follow_redirects=False)

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from src.helmsman.api._common import api_error, as_utc, iso_z, ok
+from src.workshop0.api._common import api_error, as_utc, iso_z, ok
 
 
 def test_ok_envelope():

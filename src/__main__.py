@@ -1,9 +1,9 @@
-"""Boot the Workshop Helmsman server: `uv run python -m src` (from the repo root)."""
+"""Boot the Workshop0 server: `uv run python -m src` (from the repo root)."""
 
 import uvicorn
 
-from src.helmsman.api import create_app
-from src.helmsman.config.settings import get_settings
+from src.workshop0.api import create_app
+from src.workshop0.config.settings import get_settings
 
 
 def main() -> None:

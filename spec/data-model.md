@@ -1,6 +1,6 @@
-# Data Model — Workshop Helmsman (v0.2)
+# Data Model — Workshop0 (v0.2)
 
-SQLAlchemy 2.x declarative models in `src/helmsman/db/models.py`; schema managed by Alembic (the `0001_initial` migration creates the **full v0.2 schema below**, even though later phases activate some tables). All state lives here — never only in process memory (resilience rule). All `DateTime` columns are timezone-aware UTC. JSON payloads are stored as `Text` (portable across SQLite/PostgreSQL). **Production engine is PostgreSQL 17 (Phase 7+)**; SQLite remains the local-dev default. Integer primary keys are identity/serial columns on PostgreSQL — any bulk load that inserts explicit ids (the Phase-8 import) must reset each table's sequence to `max(id)`.
+SQLAlchemy 2.x declarative models in `src/workshop0/db/models.py`; schema managed by Alembic (the `0001_initial` migration creates the **full v0.2 schema below**, even though later phases activate some tables). All state lives here — never only in process memory (resilience rule). All `DateTime` columns are timezone-aware UTC. JSON payloads are stored as `Text` (portable across SQLite/PostgreSQL). **Production engine is PostgreSQL 17 (Phase 7+)**; SQLite remains the local-dev default. Integer primary keys are identity/serial columns on PostgreSQL — any bulk load that inserts explicit ids (the Phase-8 import) must reset each table's sequence to `max(id)`.
 
 **Phase activation:** the "Phase" column says when the app first *writes/uses* the field — the schema itself exists from Phase 1 so later phases never migrate-and-backfill mid-season.
 

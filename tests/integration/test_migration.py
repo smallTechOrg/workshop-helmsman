@@ -33,8 +33,8 @@ def _alembic_config() -> Config:
 
 def _use(monkeypatch, url: str) -> None:
     monkeypatch.setenv("DATABASE_URL", url)
-    import src.helmsman.config.settings as settings_module
-    from src.helmsman.db.session import reset_db_state
+    import src.workshop0.config.settings as settings_module
+    from src.workshop0.db.session import reset_db_state
 
     settings_module._settings = None
     reset_db_state()
@@ -117,7 +117,7 @@ def test_migrated_schema_serves_the_api(monkeypatch, scratch_database):
 
     from fastapi.testclient import TestClient
 
-    from src.helmsman.api import create_app
+    from src.workshop0.api import create_app
     from tests.conftest import TEST_ADMIN_KEY, WORKSHOP_BODY
 
     client = TestClient(create_app())

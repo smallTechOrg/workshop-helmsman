@@ -72,7 +72,7 @@ class RequestLoggingMiddleware:
 
     def __init__(self, app):
         self.app = app
-        self.logger = structlog.get_logger("helmsman.request")
+        self.logger = structlog.get_logger("workshop0.request")
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":

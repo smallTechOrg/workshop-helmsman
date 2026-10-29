@@ -31,7 +31,7 @@ def iso_z(dt: datetime) -> str:
 
 
 def request_base_url(request: Request) -> str:
-    from src.helmsman.config.settings import get_settings
+    from src.workshop0.config.settings import get_settings
 
     configured = get_settings().resolved_base_url
     if configured:

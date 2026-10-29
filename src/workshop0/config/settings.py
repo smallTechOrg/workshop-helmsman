@@ -3,7 +3,7 @@
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-DEFAULT_DATABASE_URL = "sqlite:///data/helmsman.db"
+DEFAULT_DATABASE_URL = "sqlite:///data/workshop0.db"
 DEFAULT_PORT = 8001
 _LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
@@ -31,14 +31,14 @@ class Settings(BaseSettings):
 
     database_url: str = Field(default=DEFAULT_DATABASE_URL)
     port: int = Field(default=DEFAULT_PORT)
-    helmsman_db_pool_size: int = Field(default=3)
-    helmsman_db_max_overflow: int = Field(default=2)
-    helmsman_admin_key: str = Field(default="")
-    helmsman_base_url: str = Field(default="")
-    helmsman_log_level: str = Field(default="INFO")
+    workshop0_db_pool_size: int = Field(default=3)
+    workshop0_db_max_overflow: int = Field(default=2)
+    workshop0_admin_key: str = Field(default="")
+    workshop0_base_url: str = Field(default="")
+    workshop0_log_level: str = Field(default="INFO")
     openrouter_api_key: str = Field(default="")
-    helmsman_ai_model: str = Field(default="anthropic/claude-sonnet-4-6")
-    helmsman_ai_confidence: float = Field(default=0.75)
+    workshop0_ai_model: str = Field(default="anthropic/claude-sonnet-4-6")
+    workshop0_ai_confidence: float = Field(default=0.75)
 
     @field_validator("database_url")
     @classmethod
@@ -47,15 +47,15 @@ class Settings(BaseSettings):
 
     @property
     def resolved_admin_key(self) -> str:
-        return self.helmsman_admin_key.strip()
+        return self.workshop0_admin_key.strip()
 
     @property
     def resolved_base_url(self) -> str:
-        return _strip_inline_comment(self.helmsman_base_url).rstrip("/")
+        return _strip_inline_comment(self.workshop0_base_url).rstrip("/")
 
     @property
     def resolved_log_level(self) -> str:
-        level = _strip_inline_comment(self.helmsman_log_level).upper()
+        level = _strip_inline_comment(self.workshop0_log_level).upper()
         return level if level in _LOG_LEVELS else "INFO"
 
 

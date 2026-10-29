@@ -6,9 +6,9 @@ from fastapi import Header
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.helmsman.api._common import api_error
-from src.helmsman.config.settings import get_settings
-from src.helmsman.db.models import Participant, Workshop
+from src.workshop0.api._common import api_error
+from src.workshop0.config.settings import get_settings
+from src.workshop0.db.models import Participant, Workshop
 
 
 def generate_admin_token() -> str:
@@ -34,7 +34,7 @@ def require_admin_key(x_admin_key: str | None = Header(default=None)) -> None:
     if not admin_key_matches(x_admin_key, get_settings().resolved_admin_key):
         raise api_error(
             "invalid_admin_key",
-            "The access key is missing or does not match this server's HELMSMAN_ADMIN_KEY.",
+            "The access key is missing or does not match this server's WORKSHOP0_ADMIN_KEY.",
             401,
         )
 

@@ -41,12 +41,12 @@ def build_fixture(out: Path) -> dict:
     out.parent.mkdir(parents=True, exist_ok=True)
 
     os.environ["DATABASE_URL"] = f"sqlite:///{out}"
-    os.environ["HELMSMAN_ADMIN_KEY"] = FIXTURE_ADMIN_KEY
-    os.environ["HELMSMAN_BASE_URL"] = ""
-    os.environ["HELMSMAN_LOG_LEVEL"] = "WARNING"
+    os.environ["WORKSHOP0_ADMIN_KEY"] = FIXTURE_ADMIN_KEY
+    os.environ["WORKSHOP0_BASE_URL"] = ""
+    os.environ["WORKSHOP0_LOG_LEVEL"] = "WARNING"
 
-    import src.helmsman.config.settings as settings_module
-    from src.helmsman.db.session import reset_db_state
+    import src.workshop0.config.settings as settings_module
+    from src.workshop0.db.session import reset_db_state
 
     settings_module._settings = None
     reset_db_state()
@@ -58,7 +58,7 @@ def build_fixture(out: Path) -> dict:
 
     from fastapi.testclient import TestClient
 
-    from src.helmsman.api import create_app
+    from src.workshop0.api import create_app
 
     client = TestClient(create_app())
     admin = {"X-Admin-Key": FIXTURE_ADMIN_KEY}
@@ -131,7 +131,7 @@ def build_fixture(out: Path) -> dict:
 
     from sqlalchemy import func, select
 
-    from src.helmsman.db.models import (
+    from src.workshop0.db.models import (
         AgendaTemplate,
         AgendaTemplateMilestone,
         AiUsage,
@@ -140,7 +140,7 @@ def build_fixture(out: Path) -> dict:
         JoinFormTemplate,
         Workshop,
     )
-    from src.helmsman.db.session import create_db_session
+    from src.workshop0.db.session import create_db_session
 
     # Tables with no public API yet (templates, AI usage): seed a few rows directly so
     # every app table, including Numeric and nullable-FK columns, is exercised.

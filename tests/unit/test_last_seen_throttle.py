@@ -5,10 +5,10 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from src.helmsman.api._common import as_utc, utcnow
-from src.helmsman.api.participant import LAST_SEEN_TOUCH_SECONDS, _touch_last_seen
-from src.helmsman.db.models import Participant
-from src.helmsman.db.session import create_db_session
+from src.workshop0.api._common import as_utc, utcnow
+from src.workshop0.api.participant import LAST_SEEN_TOUCH_SECONDS, _touch_last_seen
+from src.workshop0.db.models import Participant
+from src.workshop0.db.session import create_db_session
 
 
 def _joined(workshop, make_client, join_participant) -> int:

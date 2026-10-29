@@ -11,8 +11,8 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.helmsman.api._common import api_error, iso_z, ok, request_base_url, utcnow
-from src.helmsman.db.models import (
+from src.workshop0.api._common import api_error, iso_z, ok, request_base_url, utcnow
+from src.workshop0.db.models import (
     Broadcast,
     FacilitatorAction,
     HelpAnswer,
@@ -22,29 +22,29 @@ from src.helmsman.db.models import (
     Participant,
     Workshop,
 )
-from src.helmsman.db.session import get_session
-from src.helmsman.security import workshop_by_admin_token
-from src.helmsman.services.audit import record_action
-from src.helmsman.services.join_form import (
+from src.workshop0.db.session import get_session
+from src.workshop0.security import workshop_by_admin_token
+from src.workshop0.services.audit import record_action
+from src.workshop0.services.join_form import (
     JoinFormError,
     validate_answers,
     validate_field_defs,
 )
-from src.helmsman.services.milestone_input import (
+from src.workshop0.services.milestone_input import (
     MilestoneInputError,
     load_input_config,
     validate_input_config,
 )
-from src.helmsman.services.snapshots import (
+from src.workshop0.services.snapshots import (
     bump_content_version,
     bump_state_version,
     dashboard_snapshot,
     serialize_broadcast,
     serialize_help_request_facilitator,
 )
-from src.helmsman.services.undo import apply_undo
+from src.workshop0.services.undo import apply_undo
 
-log = structlog.get_logger("helmsman")
+log = structlog.get_logger("workshop0")
 
 router = APIRouter(prefix="/api/f/{admin_token}")
 

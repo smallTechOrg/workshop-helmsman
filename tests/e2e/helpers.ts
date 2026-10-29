@@ -23,14 +23,14 @@ export const CREATE_URL = `${APP_BASE}/create/`;
 let cachedAdminKey: string | null = null;
 
 /**
- * Resolve HELMSMAN_ADMIN_KEY: process.env first, else parse the repo-root
+ * Resolve WORKSHOP0_ADMIN_KEY: process.env first, else parse the repo-root
  * `.env` file (simple line parse — no dotenv dependency). The value is only
  * ever typed into the admin-key field; it is never logged or asserted on.
  */
 export function adminKey(): string {
   if (cachedAdminKey) return cachedAdminKey;
 
-  const fromEnv = process.env.HELMSMAN_ADMIN_KEY;
+  const fromEnv = process.env.WORKSHOP0_ADMIN_KEY;
   if (fromEnv && fromEnv.trim()) {
     cachedAdminKey = fromEnv.trim();
     return cachedAdminKey;
@@ -42,13 +42,13 @@ export function adminKey(): string {
     raw = fs.readFileSync(envPath, 'utf8');
   } catch {
     throw new Error(
-      'HELMSMAN_ADMIN_KEY is not set in the environment and the repo-root .env file is not readable. ' +
-        'Run `cp .env.example .env` and set HELMSMAN_ADMIN_KEY before the e2e gate.',
+      'WORKSHOP0_ADMIN_KEY is not set in the environment and the repo-root .env file is not readable. ' +
+        'Run `cp .env.example .env` and set WORKSHOP0_ADMIN_KEY before the e2e gate.',
     );
   }
 
   for (const line of raw.split(/\r?\n/)) {
-    const match = line.match(/^\s*(?:export\s+)?HELMSMAN_ADMIN_KEY\s*=\s*(.*)$/);
+    const match = line.match(/^\s*(?:export\s+)?WORKSHOP0_ADMIN_KEY\s*=\s*(.*)$/);
     if (!match) continue;
     let value = match[1].trim();
     if (
@@ -64,7 +64,7 @@ export function adminKey(): string {
   }
 
   throw new Error(
-    'HELMSMAN_ADMIN_KEY is missing/empty in both the environment and the repo-root .env file.',
+    'WORKSHOP0_ADMIN_KEY is missing/empty in both the environment and the repo-root .env file.',
   );
 }
 

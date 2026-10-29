@@ -1,4 +1,4 @@
-# Architecture — Workshop Helmsman (v0.2)
+# Architecture — Workshop0 (v0.2)
 
 ## Stack
 
@@ -10,8 +10,8 @@
 | ASGI server | uvicorn | single process, single worker (see Process model) |
 | ORM | SQLAlchemy | 2.x, sync engine, `Mapped`/`mapped_column` declarative |
 | Migrations | Alembic | ≥1.13, `render_as_batch=True` (needed for SQLite ALTER; harmless no-op on PostgreSQL). Migrations must apply cleanly on **both** engines (Phase 7 proves PostgreSQL) |
-| Database (production, Phase 7+) | **PostgreSQL 17 on Cloud SQL** | existing shared instance `ai-agent-db` (connection `ai-agent-boilerplate0:us-central1:ai-agent-db`, PRIVATE IP `10.110.112.7:5432`, TLS enforced, `max_connections=90`, db-f1-micro). Helmsman owns **only** database `helmsman` + user `helmsman_app`; it never touches other apps' databases, users or secrets |
-| Database (local dev / `deploy/docker-compose.yml`) | SQLite (WAL) | file `data/helmsman.db`, the `DATABASE_URL` default; no SQLite-only SQL in app code (the Phase-4 FTS5 corpus is the one documented exception, PostgreSQL variant in agent.md) |
+| Database (production, Phase 7+) | **PostgreSQL 17 on Cloud SQL** | existing shared instance `ai-agent-db` (connection `ai-agent-boilerplate0:us-central1:ai-agent-db`, PRIVATE IP `10.110.112.7:5432`, TLS enforced, `max_connections=90`, db-f1-micro). Workshop0 owns **only** database `workshop0` + user `workshop0_app`; it never touches other apps' databases, users or secrets |
+| Database (local dev / `deploy/docker-compose.yml`) | SQLite (WAL) | file `data/workshop0.db`, the `DATABASE_URL` default; no SQLite-only SQL in app code (the Phase-4 FTS5 corpus is the one documented exception, PostgreSQL variant in agent.md) |
 | DB driver | psycopg 3 (`psycopg[binary]`) | URL scheme `postgresql+psycopg://…?sslmode=require`; added to `pyproject.toml` + `uv.lock` in Phase 7 |
 | Test database | PostgreSQL 17 (harness Rule 5) | `TEST_DATABASE_URL` (local Homebrew `postgresql@17`, CI service container); tests never fall back to SQLite |
 | Settings | pydantic-settings | v2, loads `.env` |
@@ -25,7 +25,7 @@
 | Package manager (frontend) | pnpm | frontend deps in `frontend/`, e2e deps in root `package.json` |
 | E2E testing | Playwright | `@playwright/test`, chromium, config at repo root, tests in `tests/e2e/` |
 | Backend testing | pytest | `tests/unit/`, `tests/integration/` |
-| LLM provider | OpenRouter | key: `OPENROUTER_API_KEY` (exact name — project convention); default model `anthropic/claude-sonnet-4-6` via `HELMSMAN_AI_MODEL` |
+| LLM provider | OpenRouter | key: `OPENROUTER_API_KEY` (exact name — project convention); default model `anthropic/claude-sonnet-4-6` via `WORKSHOP0_AI_MODEL` |
 | Deploy (production, Phase 7+) | **Cloud Run + Cloud SQL**, GitHub Actions + Workload Identity Federation | see §Production topology. Supersedes the Phase-5 VM path (Docker Compose + Caddy + SQLite on GCE), removed from the repo in Phase 8 (recoverable from git tag `vm-deploy-final`) |
 | Deploy (local) | Docker Compose (`deploy/docker-compose.yml`) | SQLite + volume; kept for local dev and self-hosters |
 
@@ -34,11 +34,11 @@
 ## Repo layout
 
 ```
-workshop-helmsman/                  ← repo root IS the project; all commands run from here
+workshop0/                  ← repo root IS the project; all commands run from here
 ├── src/
 │   ├── __init__.py
 │   ├── __main__.py                 ← boots uvicorn on 0.0.0.0:$PORT (default 8001)
-│   └── helmsman/
+│   └── workshop0/
 │       ├── __init__.py             ← __version__ = "0.2.0"
 │       ├── config/settings.py      ← pydantic-settings; reads .env
 │       ├── security.py             ← token generation + auth dependencies
@@ -104,7 +104,7 @@ workshop-helmsman/                  ← repo root IS the project; all commands r
 ├── scripts/                        ← Phase 8: sqlite_to_postgres.py (one-off cutover import)
 ├── deploy/
 │   ├── Dockerfile                  ← multi-stage image (shared by compose + Cloud Run)
-│   ├── entrypoint.sh               ← `migrate` subcommand; boot-time migrations opt-in via HELMSMAN_MIGRATE_ON_BOOT
+│   ├── entrypoint.sh               ← `migrate` subcommand; boot-time migrations opt-in via WORKSHOP0_MIGRATE_ON_BOOT
 │   ├── docker-compose.yml          ← local dev (SQLite) — kept
 │   ├── cloudrun/                   ← Phase 7: provision.sh, dbinit.py · Phase 8: import-data.sh, domain-map.sh
 │   └── RUNBOOK.md                  ← Phase 8: rewritten for Cloud Run (topology, cutover, rollback, VM decommission)
@@ -115,7 +115,7 @@ workshop-helmsman/                  ← repo root IS the project; all commands r
 
 > The Phase-5 VM deploy path (`docker-compose.prod.yml`, the reverse-proxy config, `deploy.yml`) was deleted in Phase 8; it remains recoverable from git tag `vm-deploy-final`.
 
-Import convention: the application package is `src.helmsman.*` (the `src` package exists so `uv run python -m src` boots — harness contract).
+Import convention: the application package is `src.workshop0.*` (the `src` package exists so `uv run python -m src` boots — harness contract).
 
 ## Process model & single-origin serving
 
@@ -154,7 +154,7 @@ From Phase 6 the instance is publicly reachable: `/` is a marketing landing page
 
 **Decision: the landing page is a normal route of the existing Next.js static export — it becomes `frontend/app/page.tsx` (the export root, `frontend/out/index.html`) — and FastAPI serves that one file's bytes at `/` with a `FileResponse`.** The admin console moves from `frontend/app/page.tsx` to `frontend/app/admin/page.tsx`, the create flow is a new `frontend/app/create/page.tsx`.
 
-Concretely, replacing the Phase-1 `GET /` redirect in `src/helmsman/api/__init__.py`:
+Concretely, replacing the Phase-1 `GET /` redirect in `src/workshop0/api/__init__.py`:
 
 ```python
 LANDING_HTML = FRONTEND_OUT_DIR / "index.html"
@@ -214,13 +214,13 @@ No accounts anywhere. Three credentials, all generated with `secrets`:
 
 | Credential | Format | Entropy | Carried in | Grants |
 |---|---|---|---|---|
-| Facilitator access key | operator-chosen string in `.env` (`HELMSMAN_ADMIN_KEY`, recommend ≥16 chars) | n/a | `X-Admin-Key` request header (entered once on Admin Home, kept in `localStorage`) | Admin Home: list/create workshops, template library |
+| Facilitator access key | operator-chosen string in `.env` (`WORKSHOP0_ADMIN_KEY`, recommend ≥16 chars) | n/a | `X-Admin-Key` request header (entered once on Admin Home, kept in `localStorage`) | Admin Home: list/create workshops, template library |
 | Workshop admin token | `secrets.token_urlsafe(32)` → 43 chars | 256 bits | URL path (`/f/{token}`, `/api/f/{token}/…`) | Full facilitator control of one workshop; shareable to co-facilitators |
 | Participant token | `secrets.token_urlsafe(16)` → 22 chars | 128 bits | URL path (`/p/{token}`, `/api/p/{token}/…`) **and** cookie | One participant's identity, cross-device |
 | Join slug | `secrets.token_urlsafe(6)` → 8 chars | 48 bits (public, not a secret) | URL (`/j/{slug}`) | The join page only |
 
 - Key comparison uses `secrets.compare_digest`. Unknown token/key → 404 (`not_found`) for workshop tokens, 401 (`invalid_admin_key`) for the admin key — never distinguish "wrong" from "missing" for tokens.
-- **Participant cookie (auto-resume):** on join, the server sets `helmsman_p_{workshop_id}={participant_token}`; `HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000` (30 days). `GET /api/join/{slug}` reads it server-side and returns the participant's token if recognized, so the join page silently forwards a returning browser to its tracker. The personal link `/p/{token}` needs no cookie — it *is* the cross-device credential. The facilitator dashboard shows each participant's personal link (copy button) — the lost-link recovery path.
+- **Participant cookie (auto-resume):** on join, the server sets `workshop0_p_{workshop_id}={participant_token}`; `HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000` (30 days). **One-release compatibility (Phase 9):** if that cookie is absent the server also accepts the legacy-named cookie for the same workshop (same token value) and re-sets it under the new name; only the new name is ever written. The fallback line is marked `LEGACY-COMPAT` in code. `GET /api/join/{slug}` reads it server-side and returns the participant's token if recognized, so the join page silently forwards a returning browser to its tracker. The personal link `/p/{token}` needs no cookie — it *is* the cross-device credential. The facilitator dashboard shows each participant's personal link (copy button) — the lost-link recovery path.
 - Structured logs mask all tokens to their first 6 characters.
 
 ### Public self-service creation (Phase 6) — what does and does not change
@@ -228,9 +228,9 @@ No accounts anywhere. Three credentials, all generated with `secrets`:
 The credential table above is **unchanged**. Creation simply stops requiring the instance key:
 
 - **A public creator's only credential is the workshop's `admin_token`** (their `/f/{admin_token}` link). The facilitator surface is already fully scoped to a single workshop by that token, so a public creator structurally cannot see or touch any other workshop — no new scoping code is needed or permitted.
-- **Full facilitator parity, no reduced tier.** On their own workshop a public creator gets every facilitator capability an admin-created workshop has (broadcast, pause, advance, reorder, edit/add/delete milestones, undo, help desk, audit, CSV export, settings). `created_via` is a provenance label; **no endpoint may branch on it for authorization**. The only thing a public creator lacks is the cross-workshop admin list, which lives behind `HELMSMAN_ADMIN_KEY`.
-- **`HELMSMAN_ADMIN_KEY` keeps exactly one meaning:** the cross-workshop view (list every workshop, public-created included, with creator email and origin) plus the template library. It is still required at startup.
-- **Browser `localStorage` "your workshops" is convenience, not auth.** On successful public creation the browser stores `{name, facilitator_url, join_url, created_at}` locally so the landing page can offer quick links back. It grants nothing — the links it holds are the credential. Clearing the browser loses them permanently, and the landing page, the creation success screen and the FAQ must say so plainly and push the creator to copy/save the facilitator link.
+- **Full facilitator parity, no reduced tier.** On their own workshop a public creator gets every facilitator capability an admin-created workshop has (broadcast, pause, advance, reorder, edit/add/delete milestones, undo, help desk, audit, CSV export, settings). `created_via` is a provenance label; **no endpoint may branch on it for authorization**. The only thing a public creator lacks is the cross-workshop admin list, which lives behind `WORKSHOP0_ADMIN_KEY`.
+- **`WORKSHOP0_ADMIN_KEY` keeps exactly one meaning:** the cross-workshop view (list every workshop, public-created included, with creator email and origin) plus the template library. It is still required at startup.
+- **Browser `localStorage` is convenience, not auth.** Keys: `workshop0_admin_key` (the admin key typed on Admin Home) and `workshop0_my_workshops` ("your workshops"). **One-release migrate-on-read (Phase 9):** if the new key is absent, read the legacy-named key, write its value under the new key, return it; the legacy key is never deleted in this release (marker `LEGACY-COMPAT`). On successful public creation the browser stores `{name, facilitator_url, join_url, created_at}` locally so the landing page can offer quick links back. It grants nothing — the links it holds are the credential. Clearing the browser loses them permanently, and the landing page, the creation success screen and the FAQ must say so plainly and push the creator to copy/save the facilitator link.
 - **The email is the abuse deterrent and contact trail, nothing more.** Format-validated, stored on the workshop, visible only to the admin. No verification, no mail sent (there is no mail infrastructure), and it is not a credential — losing the dashboard link cannot be recovered by proving the email.
 - **Accepted risk (explicit):** with no key, no rate limit, no cap and no captcha, this endpoint can be spammed into unbounded workshop rows by a determined actor. Accepted for this phase: the instance is small and self-hosted, workshop rows are cheap, the admin can see and delete every row, and the email requirement raises the effort floor. Rate limiting / caps / captcha are the documented next lever if abuse actually occurs — they are deliberately **not** in this phase.
 
@@ -240,7 +240,7 @@ The credential table above is **unchanged**. Creation simply stops requiring the
 - **Fail fast at the boundary.** Request bodies are validated by Pydantic models; domain validation (lengths, state rules like "workshop is archived") raises `api_error` with a specific code. Invalid data never propagates.
 - **Optimistic UI with reconciliation.** Mutations (mark complete, send answer) update the UI immediately, fire the request, and reconcile on the response + next poll. On failure: the UI reverts and shows a toast naming the cause and next step ("Couldn't save — retrying in 3 s" / "This workshop is paused").
 - **The poll loop is self-healing.** A failed poll (server restarting, network blip) shows a quiet "reconnecting…" indicator after 2 consecutive failures, backs off (3 s → 6 s → 12 s, cap 30 s), and recovers automatically — full state comes from the DB on the first successful poll. No data is ever lost because no data lives only in the client or the process.
-- **Startup fails hard** on unrecoverable config (missing `HELMSMAN_ADMIN_KEY`, unreadable `DATABASE_URL`) with a clear message. A missing `OPENROUTER_API_KEY` is *not* an error — the AI surface reports "AI off (no API key)" and everything else runs (air-gapped guarantee).
+- **Startup fails hard** on unrecoverable config (missing `WORKSHOP0_ADMIN_KEY`, unreadable `DATABASE_URL`) with a clear message. A missing `OPENROUTER_API_KEY` is *not* an error — the AI surface reports "AI off (no API key)" and everything else runs (air-gapped guarantee).
 - **AI failures degrade to manual.** Any AI-pipeline failure (timeout, 5xx, malformed output) logs ERROR and leaves the help request in the normal facilitator queue — the participant experience is identical to AI-off (see agent.md).
 
 ## Observability (wired in Phase 1, never deferred)
@@ -252,7 +252,7 @@ The credential table above is **unchanged**. Creation simply stops requiring the
 
 ## Database configuration
 
-- **Production = PostgreSQL** (`DATABASE_URL=postgresql+psycopg://helmsman_app:…@10.110.112.7:5432/helmsman?sslmode=require`, injected from a Secret Manager secret). **Local default = SQLite** (`sqlite:///data/helmsman.db`), pragmas applied per-connection via a `connect` listener: `PRAGMA journal_mode=WAL; synchronous=NORMAL; busy_timeout=5000; foreign_keys=ON;`.
+- **Production = PostgreSQL** (`DATABASE_URL=postgresql+psycopg://workshop0_app:…@10.110.112.7:5432/workshop0?sslmode=require`, injected from a Secret Manager secret). **Local default = SQLite** (`sqlite:///data/workshop0.db`), pragmas applied per-connection via a `connect` listener: `PRAGMA journal_mode=WAL; synchronous=NORMAL; busy_timeout=5000; foreign_keys=ON;`.
 - SQLAlchemy: sync engine, `pool_pre_ping=True`. SQLite: `connect_args={"check_same_thread": False}`. **PostgreSQL pool is sized for a shared 90-connection instance:** `pool_size=3`, `max_overflow=2`, `pool_timeout=10`, `pool_recycle=1800` (all env-tunable, below). Budget rule: `max-instances × (pool_size + max_overflow) ≤ ~15` → 3 × 5 = 15, plus 1 for the migrate job. Never raise Cloud Run `max-instances` without recomputing this.
 - A scheme of `postgres://` or `postgresql://` is normalised to `postgresql+psycopg://` at settings load. Models use portable types only (Integer/Text/Boolean/DateTime(timezone=True)/Numeric + JSON as Text). Integer PKs are PostgreSQL identity/serial columns (relevant to the Phase-8 import: sequences are reset). The FTS5 help corpus (Phase 4) is SQLite-only; **in production the PostgreSQL variant (tsvector + GIN) is the build target** — see agent.md.
 - Any query that is only correct on SQLite (unordered `LIMIT`, case-insensitive-by-accident matching, loose `GROUP BY`, naive-datetime assumptions) is an app bug to fix, not a test to weaken.
@@ -265,7 +265,7 @@ The credential table above is **unchanged**. Creation simply stops requiring the
 - **XSS:** all facilitator/AI-authored markdown (milestones, broadcasts, answers) renders through react-markdown with **raw HTML disabled** — HTML in markdown source is not injected. Participant-authored text (names, help messages) is rendered as **plain text** (React text nodes, `whitespace-pre-wrap`), never as markdown or HTML.
 - **SQL injection:** SQLAlchemy ORM/parameterized queries only. The FTS5 `MATCH` query string is built from sanitized, quoted tokens (see agent.md).
 - **CSRF:** state-changing endpoints are authenticated by unguessable URL tokens or the `X-Admin-Key` header — not by cookies — so cross-site form posts cannot forge them. The participant cookie is only ever *read* to resolve auto-resume on `GET /api/join/{slug}`.
-- **Secrets:** only in `.env` (gitignored). Logs and API responses never contain `OPENROUTER_API_KEY` or `HELMSMAN_ADMIN_KEY`; key presence is logged as a boolean.
+- **Secrets:** only in `.env` (gitignored). Logs and API responses never contain `OPENROUTER_API_KEY` or `WORKSHOP0_ADMIN_KEY`; key presence is logged as a boolean.
 - **Rate limiting:** none in v0.2 (self-hosted, unguessable tokens, trusted room). > **Assumed:** acceptable for a single-team instance; revisit if ever exposed as SaaS. From Phase 6 this extends to the keyless `POST /api/public/workshops` — see §Auth model → Accepted risk.
 - **Creator email (Phase 6):** stored, returned only on the admin list, masked in logs (`as***@example.com`), never rendered on a participant- or public-facing surface.
 
@@ -273,68 +273,99 @@ The credential table above is **unchanged**. Creation simply stops requiring the
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | no | `sqlite:///data/helmsman.db` | SQLAlchemy URL; **PostgreSQL in production** (Cloud Run gets it from secret `helmsman-database-url`) |
-| `HELMSMAN_DB_POOL_SIZE` | no | `3` | PostgreSQL pool size (ignored on SQLite) |
-| `HELMSMAN_DB_MAX_OVERFLOW` | no | `2` | PostgreSQL pool overflow |
-| `HELMSMAN_MIGRATE_ON_BOOT` | no | `1` | `1` → container entrypoint runs `alembic upgrade head` before serving (local compose). **Cloud Run sets `0`**: migrations run only in the `helmsman-migrate` job |
+| `DATABASE_URL` | no | `sqlite:///data/workshop0.db` | SQLAlchemy URL; **PostgreSQL in production** (Cloud Run gets it from secret `workshop0-database-url`) |
+| `WORKSHOP0_DB_POOL_SIZE` | no | `3` | PostgreSQL pool size (ignored on SQLite) |
+| `WORKSHOP0_DB_MAX_OVERFLOW` | no | `2` | PostgreSQL pool overflow |
+| `WORKSHOP0_MIGRATE_ON_BOOT` | no | `1` | `1` → container entrypoint runs `alembic upgrade head` before serving (local compose). **Cloud Run sets `0`**: migrations run only in the `workshop0-migrate` job |
 | `TEST_DATABASE_URL` | tests only | — | PostgreSQL URL of a throwaway `*_test` database; the suite refuses any database whose name does not end in `_test` |
 | `PORT` | no | `8001` | HTTP port (Cloud Run injects `8080`) |
-| `HELMSMAN_ADMIN_KEY` | **yes** | — | Facilitator access key for Admin Home |
-| `HELMSMAN_BASE_URL` | no | derived from request | Absolute base for generated share links (set behind a proxy) |
-| `HELMSMAN_LOG_LEVEL` | no | `INFO` | structlog level |
+| `WORKSHOP0_ADMIN_KEY` | **yes** | — | Facilitator access key for Admin Home |
+| `WORKSHOP0_BASE_URL` | no | derived from request | Absolute base for generated share links (set behind a proxy) |
+| `WORKSHOP0_LOG_LEVEL` | no | `INFO` | structlog level |
 | `OPENROUTER_API_KEY` | no | — | AI help-desk; absent → fully air-gapped, zero errors |
-| `HELMSMAN_AI_MODEL` | no | `anthropic/claude-sonnet-4-6` | OpenRouter model id |
-| `HELMSMAN_AI_CONFIDENCE` | no | `0.75` | Auto-answer confidence threshold (see agent.md) |
+| `WORKSHOP0_AI_MODEL` | no | `anthropic/claude-sonnet-4-6` | OpenRouter model id |
+| `WORKSHOP0_AI_CONFIDENCE` | no | `0.75` | Auto-answer confidence threshold (see agent.md) |
 
 ## Deploy shape
 
 ### Local / image (Phase 5, still valid)
 
 - `deploy/Dockerfile` — multi-stage: (1) Node stage builds the frontend export, (2) Python stage with uv installs the app and copies `frontend/out/`. Same image for compose and Cloud Run.
-- `deploy/entrypoint.sh` — `entrypoint.sh migrate` runs `alembic upgrade head` and exits (used by the Cloud Run job). With no argument it serves; **before serving it runs `alembic upgrade head` only if `HELMSMAN_MIGRATE_ON_BOOT` is `1`/`true`** (default `1`, so local compose is unchanged; Cloud Run sets `0`). It should exec the venv interpreter directly (not `uv run`) to keep cold starts short.
+- `deploy/entrypoint.sh` — `entrypoint.sh migrate` runs `alembic upgrade head` and exits (used by the Cloud Run job). With no argument it serves; **before serving it runs `alembic upgrade head` only if `WORKSHOP0_MIGRATE_ON_BOOT` is `1`/`true`** (default `1`, so local compose is unchanged; Cloud Run sets `0`). It should exec the venv interpreter directly (not `uv run`) to keep cold starts short.
 - `deploy/docker-compose.yml` — local dev: one service, named volume for `data/` (SQLite), `env_file: .env`, port 8001. Kept after Phase 8.
-- `.github/workflows/ci.yml` — on PR/push: backend job with a **`postgres:17` service container** (`POSTGRES_PASSWORD=postgres`, `POSTGRES_DB=helmsman_test`, `--health-cmd pg_isready`), `TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/helmsman_test`, then `uv run pytest tests/unit tests/integration -q`; frontend build; e2e job also runs the app against a Postgres service container (`DATABASE_URL` set, `alembic upgrade head` first). Real-key tests run only where secrets exist (guarded skip).
+- `.github/workflows/ci.yml` — on PR/push: backend job with a **`postgres:17` service container** (`POSTGRES_PASSWORD=postgres`, `POSTGRES_DB=workshop0_test`, `--health-cmd pg_isready`), `TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/workshop0_test`, then `uv run pytest tests/unit tests/integration -q`; frontend build; e2e job also runs the app against a Postgres service container (`DATABASE_URL` set, `alembic upgrade head` first). Real-key tests run only where secrets exist (guarded skip).
 
 ### Production topology (Phase 7+) — Cloud Run + Cloud SQL
 
 ```
-GitHub Actions ──WIF (no keys)──▶ helmsman-deployer SA
-   build image ─▶ Artifact Registry us-central1/helmsman ─▶ Cloud Run Job helmsman-migrate (alembic upgrade head)
-        └─▶ Cloud Run service helmsman: new revision --no-traffic (tag candidate) ─▶ health check ─▶ shift 100% ─▶ health check ─▶ (fail ⇒ roll back)
+GitHub Actions ──WIF (no keys)──▶ workshop0-deployer SA
+   build image ─▶ Artifact Registry us-central1/workshop0 ─▶ Cloud Run Job workshop0-migrate (alembic upgrade head)
+        └─▶ Cloud Run service workshop0: new revision --no-traffic (tag candidate) ─▶ health check ─▶ shift 100% ─▶ health check ─▶ (fail ⇒ roll back)
 
-Browser ─HTTPS─▶ Cloud Run (helmsman, 0–3 instances, run.app URL; workshop0.smalltech.in via Cloud Run domain mapping, Phase 8)
-                   └─ Direct VPC egress (network default, subnet default, private-ranges-only) ─TLS─▶ Cloud SQL ai-agent-db 10.110.112.7:5432 / db helmsman
-Secrets: Secret Manager helmsman-* ─(--set-secrets, runtime SA helmsman-run)─▶ env
+Browser ─HTTPS─▶ Cloud Run (workshop0, 0–3 instances, run.app URL; workshop0.smalltech.in via Cloud Run domain mapping, Phase 8)
+                   └─ Direct VPC egress (network default, subnet default, private-ranges-only) ─TLS─▶ Cloud SQL ai-agent-db 10.110.112.7:5432 / db workshop0
+Secrets: Secret Manager workshop0-* ─(--set-secrets, runtime SA workshop0-run)─▶ env
 ```
 
 | Concern | Decision |
 |---|---|
 | Project / region | `ai-agent-boilerplate0` (number `870371939888`) / **`us-central1`** |
 | Region trade-off (deliberate) | Co-located with the database. Putting the service in `asia-south1` (nearer the India-based participants) would put every DB query across ~200 ms of inter-region latency — a poll that does 3 queries would cost ~600 ms and a full snapshot build seconds. Co-location instead costs India users one ~200 ms network round-trip per request, paid once and in parallel, not per query. Chosen: DB-adjacent. Revisit only if the database moves. |
-| Service | Cloud Run service `helmsman`, image `us-central1-docker.pkg.dev/ai-agent-boilerplate0/helmsman/helmsman:<sha12>`, public via an `allUsers` -> `roles/run.invoker` binding made by `provision.sh` on a pre-created placeholder service (the workflow never passes `--allow-unauthenticated`; the deployer has no setIamPolicy), port 8080 |
+| Service | Cloud Run service `workshop0`, image `us-central1-docker.pkg.dev/ai-agent-boilerplate0/workshop0/workshop0:<sha12>`, public via an `allUsers` -> `roles/run.invoker` binding made by `provision.sh` on a pre-created placeholder service (the workflow never passes `--allow-unauthenticated`; the deployer has no setIamPolicy), port 8080 |
 | Sizing | `--cpu 1 --memory 512Mi --concurrency 40 --timeout 60 --max-instances 3 --min-instances 0 --cpu-boost --no-cpu-throttling`. `--no-cpu-throttling` (CPU allocated outside requests) is required because the Phase-4 AI pipeline runs as a post-response `BackgroundTask`, which request-billed Cloud Run would starve. With min-instances 0 an instance still scales to zero when idle. |
 | Scale-to-zero | Default `min-instances=0` → first request after idle pays a cold start (a few seconds). Before a workshop the operator runs **workshop mode** (`min-instances=1`) and turns it off after (see below). |
 | VPC egress | Direct VPC egress: `--network=default --subnet=default --vpc-egress=private-ranges-only` (sets annotations `run.googleapis.com/network-interfaces: [{"network":"default","subnetwork":"default"}]` and `run.googleapis.com/vpc-access-egress: private-ranges-only`). Internet egress (OpenRouter) goes direct, not through the VPC. |
 | TLS to DB | Instance is `ENCRYPTED_ONLY`; URL carries `sslmode=require` (encrypted; server cert not verified — private IP, accepted). |
-| Migrations | Cloud Run Job **`helmsman-migrate`** (same image + env + secrets + VPC egress, `--command entrypoint.sh --args migrate`, `--max-retries 0`) executed with `--wait` **before** the new revision receives traffic. Revisions run with `HELMSMAN_MIGRATE_ON_BOOT=0`. Migrations must stay backward-compatible with the previous revision for the one-deploy overlap window (additive first, destructive in a later release). |
-| Traffic shift + rollback guard | `gcloud run deploy helmsman --no-traffic --tag candidate --revision-suffix sha-<sha12>`; `GET https://candidate---…run.app/api/health` must return `{"status":"ok","db":"ok"}` (retry up to 60 s); then `update-traffic --to-revisions NEW=100`; health-check the service URL again; **any failure ⇒ `update-traffic --to-revisions <PREV>=100`** (PREV captured before the deploy) and the job exits non-zero. First-ever deploy (no service yet) deploys directly. |
-| Secrets (Secret Manager, prefix `helmsman-`) | `helmsman-database-url` (full URL incl. password), `helmsman-openrouter-api-key`, `helmsman-admin-key`; mounted via `--set-secrets DATABASE_URL=helmsman-database-url:latest,OPENROUTER_API_KEY=…,HELMSMAN_ADMIN_KEY=…`. Created only by `provision.sh`, value via stdin (`gcloud secrets versions add --data-file=-`), never in argv, logs or the repo. |
-| Service accounts | `helmsman-run` (runtime): `roles/secretmanager.secretAccessor` bound **per secret** on the three `helmsman-*` secrets only; no project-level roles. `helmsman-deployer` (CI): `roles/run.developer`, `roles/artifactregistry.writer` (on repo `helmsman`), `roles/iam.serviceAccountUser` on `helmsman-run`, `roles/secretmanager.viewer` on the three secrets (> **Assumed:** needed for `--set-secrets` validation; if the gate shows it is not required, drop it). Public-invoker IAM (`allUsers` → `roles/run.invoker`) is granted once by `provision.sh`, not by CI. |
-| Workload Identity Federation | Existing pool `projects/870371939888/locations/global/workloadIdentityPools/github`; **new provider `helmsman-github`** (OIDC issuer `https://token.actions.githubusercontent.com`, mapping `google.subject=assertion.sub, attribute.repository=assertion.repository, attribute.ref=assertion.ref`, **attributeCondition `assertion.repository=='smallTechOrg/workshop-helmsman'`**). `roles/iam.workloadIdentityUser` on `helmsman-deployer` for `principalSet://…/attribute.repository/smallTechOrg/workshop-helmsman`. The provider/pool IDs are not secrets and are written in the workflow. Other apps' providers are never modified. |
-| Artifact Registry | docker repo `helmsman`, `us-central1`; images tagged by 12-char git SHA (+ `latest`) |
-| Database bootstrap | `provision.sh` creates DB `helmsman` and user `helmsman_app` via the Cloud SQL Admin API (`gcloud sql databases/users create`), password generated locally (`openssl rand -hex 24`, hex ⇒ URL-safe) and stored **only** in `helmsman-database-url`; on re-run the password is read back from Secret Manager and re-applied, never regenerated. The instance is private-IP-only, so schema privileges cannot be granted from the operator's laptop: `provision.sh` runs `deploy/cloudrun/dbinit.py` as a one-off Cloud Run Job `helmsman-dbinit` (VPC-attached) that probes whether `helmsman_app` can `CREATE TABLE` in `public` and, if not, runs `GRANT helmsman_app TO postgres; ALTER DATABASE helmsman OWNER TO helmsman_app;` using the instance's `postgres` password supplied once via an interactive no-echo prompt → a temporary secret `helmsman-tmp-pgadmin` (stdin) that is deleted (trap) before the script exits. The `postgres` password is never stored. |
+| Migrations | Cloud Run Job **`workshop0-migrate`** (same image + env + secrets + VPC egress, `--command entrypoint.sh --args migrate`, `--max-retries 0`) executed with `--wait` **before** the new revision receives traffic. Revisions run with `WORKSHOP0_MIGRATE_ON_BOOT=0`. Migrations must stay backward-compatible with the previous revision for the one-deploy overlap window (additive first, destructive in a later release). |
+| Traffic shift + rollback guard | `gcloud run deploy workshop0 --no-traffic --tag candidate --revision-suffix sha-<sha12>`; `GET https://candidate---…run.app/api/health` must return `{"status":"ok","db":"ok"}` (retry up to 60 s); then `update-traffic --to-revisions NEW=100`; health-check the service URL again; **any failure ⇒ `update-traffic --to-revisions <PREV>=100`** (PREV captured before the deploy) and the job exits non-zero. First-ever deploy (no service yet) deploys directly. |
+| Secrets (Secret Manager, prefix `workshop0-`) | `workshop0-database-url` (full URL incl. password), `workshop0-openrouter-api-key`, `workshop0-admin-key`; mounted via `--set-secrets DATABASE_URL=workshop0-database-url:latest,OPENROUTER_API_KEY=…,WORKSHOP0_ADMIN_KEY=…`. Created only by `provision.sh`, value via stdin (`gcloud secrets versions add --data-file=-`), never in argv, logs or the repo. |
+| Service accounts | `workshop0-run` (runtime): `roles/secretmanager.secretAccessor` bound **per secret** on the three `workshop0-*` secrets only; no project-level roles. `workshop0-deployer` (CI): `roles/run.developer`, `roles/artifactregistry.writer` (on repo `workshop0`), `roles/iam.serviceAccountUser` on `workshop0-run`, `roles/secretmanager.viewer` on the three secrets (> **Assumed:** needed for `--set-secrets` validation; if the gate shows it is not required, drop it). Public-invoker IAM (`allUsers` → `roles/run.invoker`) is granted once by `provision.sh`, not by CI. |
+| Workload Identity Federation | Existing pool `projects/870371939888/locations/global/workloadIdentityPools/github`; **new provider `workshop0-github`** (OIDC issuer `https://token.actions.githubusercontent.com`, mapping `google.subject=assertion.sub, attribute.repository=assertion.repository, attribute.ref=assertion.ref`, **attributeCondition `assertion.repository=='smallTechOrg/workshop0'`**). `roles/iam.workloadIdentityUser` on `workshop0-deployer` for `principalSet://…/attribute.repository/smallTechOrg/workshop0`. The provider/pool IDs are not secrets and are written in the workflow. Other apps' providers are never modified. |
+| Artifact Registry | docker repo `workshop0`, `us-central1`; images tagged by 12-char git SHA (+ `latest`) |
+| Database bootstrap | `provision.sh` creates DB `workshop0` and user `workshop0_app` via the Cloud SQL Admin API (`gcloud sql databases/users create`), password generated locally (`openssl rand -hex 24`, hex ⇒ URL-safe) and stored **only** in `workshop0-database-url`; on re-run the password is read back from Secret Manager and re-applied, never regenerated. The instance is private-IP-only, so schema privileges cannot be granted from the operator's laptop: `provision.sh` runs `deploy/cloudrun/dbinit.py` as a one-off Cloud Run Job `workshop0-dbinit` (VPC-attached) that probes whether `workshop0_app` can `CREATE TABLE` in `public` and, if not, runs `GRANT workshop0_app TO postgres; ALTER DATABASE workshop0 OWNER TO workshop0_app;` using the instance's `postgres` password supplied once via an interactive no-echo prompt → a temporary secret `workshop0-tmp-pgadmin` (stdin) that is deleted (trap) before the script exits. The `postgres` password is never stored. |
 | Logging | structlog JSON on stdout is ingested by Cloud Logging; each line also carries `severity` (mapped from `level`) so Cloud Logging colours/filters correctly. |
 | Phase-4 AI on Cloud Run | `OPENROUTER_API_KEY` from Secret Manager; absent/empty secret value ⇒ air-gapped as before. The FTS5 corpus is SQLite-only; the PostgreSQL tsvector variant (agent.md) is what Phase 4 builds in production. |
 
-**Workshop mode (scale control).** The deploy workflow ends by routing traffic to `LATEST` (`update-traffic --to-latest`, asserted equal to the deployed revision), so the service is not pinned to a named revision and a plain `gcloud run services update helmsman --min-instances 1|0` creates a revision that serves 100% immediately (proven on the live service; a subsequent deploy preserves the value). There is no helper script. After a manual rollback or the rollback guard, traffic is pinned to a named revision; run `update-traffic --to-latest` (or any successful deploy) to resume. The workflow's `workflow_dispatch` input `min_instances` (`""` = leave unchanged, `0`, `1`) can set it; a normal deploy never changes min-instances (omitting the flag preserves the live value).
+**Workshop mode (scale control).** The deploy workflow ends by routing traffic to `LATEST` (`update-traffic --to-latest`, asserted equal to the deployed revision), so the service is not pinned to a named revision and a plain `gcloud run services update workshop0 --min-instances 1|0` creates a revision that serves 100% immediately (proven on the live service; a subsequent deploy preserves the value). There is no helper script. After a manual rollback or the rollback guard, traffic is pinned to a named revision; run `update-traffic --to-latest` (or any successful deploy) to resume. The workflow's `workflow_dispatch` input `min_instances` (`""` = leave unchanged, `0`, `1`) can set it; a normal deploy never changes min-instances (omitting the flag preserves the live value).
 
-**Backup / restore.** Cloud SQL automated backups + PITR are an instance-level setting owned by the instance's owner (shared with other apps) — Helmsman does not alter them. Per-database logical backup: `gcloud sql export sql ai-agent-db gs://<bucket>/helmsman-$(date +%F).sql --database=helmsman` (documented in RUNBOOK, requires a bucket the operator owns).
+**Backup / restore.** Cloud SQL automated backups + PITR are an instance-level setting owned by the instance's owner (shared with other apps) — Workshop0 does not alter them. Per-database logical backup: `gcloud sql export sql ai-agent-db gs://<bucket>/workshop0-$(date +%F).sql --database=workshop0` (documented in RUNBOOK, requires a bucket the operator owns).
 
 **Phase status.** Phase 7 (Cloud Run + Cloud SQL) is delivered and merged in its PR; Phase 8 (cutover) retires the VM path. **Snapshot memo:** dropped in Phase 7; revisit (shared, not per-process) only if load testing shows snapshot build is a bottleneck; key was `(workshop_id, state_version)`. The poll `leaderboard` is capped to the top 15 plus the caller's own row.
 
-**Domain.** `workshop0.smalltech.in` is mapped to the service in Phase 8 (Cloud Run domain mapping, supported in `us-central1`; Google-managed certificate). Until then the `*.run.app` URL is the product URL. DNS is at GoDaddy and is a manual human step (exact records in the Phase 8 section of the roadmap). At cutover the operator sets the GitHub repository variable `HELMSMAN_BASE_URL=https://workshop0.smalltech.in`, which the deploy workflow passes to the service, so share links use the pretty domain even if opened via `run.app`.
+**Domain.** `workshop0.smalltech.in` is mapped to the service in Phase 8 (Cloud Run domain mapping, supported in `us-central1`; Google-managed certificate). Until then the `*.run.app` URL is the product URL. DNS is at GoDaddy and is a manual human step (exact records in the Phase 8 section of the roadmap). At cutover the operator sets the GitHub repository variable `WORKSHOP0_BASE_URL=https://workshop0.smalltech.in`, which the deploy workflow passes to the service, so share links use the pretty domain even if opened via `run.app`.
 
-**Retired VM.** The GCE VM `helmsman-c`, its disk and the static IP `helmsman-ip` were deleted on 2026-10-29 after a verified backup of its SQLite database; the `DEPLOY_*` GitHub secrets were removed. Rollback of a bad release is Cloud Run revision rollback; data recovery is Cloud SQL export/restore. The old VM deploy path stays in git tag `vm-deploy-final`. Cloud Run resources keep the name `helmsman`.
+**Retired VM.** The legacy GCE VM, its disk and its static IP were deleted on 2026-10-29 after a verified backup of its SQLite database; the `DEPLOY_*` GitHub secrets were removed. Rollback of a bad release is Cloud Run revision rollback; data recovery is Cloud SQL export/restore. The old VM deploy path stays in git tag `vm-deploy-final`.
+
+**Rename (Phase 9).** All cloud resources, the repo and the code carry the Workshop0 names fixed in §Naming (Workshop0) below. The cutover (new database copied from the old one, new service deployed beside the old, domain mapping moved, old resources deleted last) is specified in [roadmap.md](roadmap.md) Phase 9.
+
+## Naming (Workshop0)
+
+Single source of truth for every name (Phase 9). Each entry replaces the same-kind resource that carried the previous product name; no other spec file restates these. Nothing is derived from the old name: DB table/column names, stored tokens and their derivation, the admin-key value and the public domain are unchanged.
+
+| Kind | Name |
+|---|---|
+| Product / brand (UI, docs, emails, CSV filenames) | **Workshop0** |
+| GitHub repository | `smallTechOrg/workshop0` (GitHub redirects the old URL; git history and tag `vm-deploy-final` are not rewritten) |
+| Local checkout directory / harness skill directory | `workshop0/` · `harness/skills/workshop0/` |
+| Python package / import path | `src/workshop0/` · `src.workshop0.*` (the `src` package and `uv run python -m src` stay) |
+| pyproject project name | `workshop0` |
+| Frontend package name (`frontend/package.json`) | `workshop0-frontend` |
+| Environment-variable prefix | every legacy-prefixed variable becomes `WORKSHOP0_*`: `WORKSHOP0_ADMIN_KEY`, `WORKSHOP0_BASE_URL`, `WORKSHOP0_DOMAIN`, `WORKSHOP0_LOG_LEVEL`, `WORKSHOP0_AI_MODEL`, `WORKSHOP0_AI_CONFIDENCE`, `WORKSHOP0_DB_POOL_SIZE`, `WORKSHOP0_DB_MAX_OVERFLOW`, `WORKSHOP0_MIGRATE_ON_BOOT`. `OPENROUTER_API_KEY`, `DATABASE_URL`, `TEST_DATABASE_URL`, `PORT` are unchanged. The old prefix is **not** read |
+| Default SQLite file | `data/workshop0.db` |
+| Logger names | `workshop0` / `workshop0.<module>` |
+| Participant cookie | `workshop0_p_{workshop_id}` (legacy-named cookie read as a one-release fallback) |
+| `localStorage` keys | `workshop0_admin_key`, `workshop0_my_workshops` (legacy-named keys read-migrated for one release, never deleted) |
+| Cloud Run service | `workshop0` |
+| Cloud Run jobs | `workshop0-migrate`, `workshop0-dbinit` (plus transient `workshop0-import` from `import-data.sh`) |
+| Artifact Registry repo / image | repo `workshop0`; image `us-central1-docker.pkg.dev/ai-agent-boilerplate0/workshop0/workshop0:<sha12>` |
+| Service accounts | `workshop0-deployer`, `workshop0-run` (`@ai-agent-boilerplate0.iam.gserviceaccount.com`) |
+| Secret Manager secrets | `workshop0-database-url`, `workshop0-openrouter-api-key`, `workshop0-admin-key` (transient `workshop0-tmp-pgadmin`) |
+| Cloud SQL (shared instance `ai-agent-db`, untouched otherwise) | database `workshop0`, user `workshop0_app`; local/CI test database `workshop0_test` |
+| Workload Identity Federation | provider `workshop0-github` in the existing pool `github`, attribute condition `assertion.repository=='smallTechOrg/workshop0'`, `workloadIdentityUser` on `workshop0-deployer` for `attribute.repository/smallTechOrg/workshop0` |
+| GitHub Actions variable | `WORKSHOP0_BASE_URL` |
+| Import bucket (transient) | `ai-agent-boilerplate0-workshop0-import-<rand>` |
+
+The three permitted survivals of the previous name in the repository are: the git tag `vm-deploy-final` (it contains no legacy word), the operator's local backup directory path and one historical sentence ("Workshop0 was previously called Workshop <previous name>") in `deploy/RUNBOOK.md`, plus the `LEGACY-COMPAT` shim lines described above.
 
 ## Key architectural decisions (summary)
 
@@ -344,7 +375,7 @@ Secrets: Secret Manager helmsman-* ─(--set-secrets, runtime SA helmsman-run)�
 | Two version counters (`state_version` / `content_version`) | Keeps steady-state polls at ~60 bytes and burst payloads ~10–15 KB; milestone bodies transfer only when edited |
 | Stateless instances; no in-process snapshot memo (Phase 7) | Cloud Run runs several interchangeable instances; the DB is the sole shared state. Memo dropped (revisit note in §Live-update point 5) and `last_seen_at` throttle moved into the UPDATE's WHERE clause |
 | Cloud Run + shared Cloud SQL Postgres in `us-central1` (Phase 7) | No VM to patch, scale-to-zero cost, automated pipeline with rollback guard; region co-located with the DB because per-query cross-region latency is worse than one user round-trip |
-| Pool budget `max-instances × (pool_size+max_overflow) ≈ 15` | The Cloud SQL instance (max_connections=90) is shared with other apps; Helmsman must never be able to exhaust it |
+| Pool budget `max-instances × (pool_size+max_overflow) ≈ 15` | The Cloud SQL instance (max_connections=90) is shared with other apps; Workshop0 must never be able to exhaust it |
 | Milestones as a real table (not JSON blob) | Per-milestone stats for 300 participants via indexed GROUP BY; FTS/context queries for the AI phase |
 | Static Next.js export served by FastAPI at `/app/` + pretty-link redirects | Single origin, one process, harness gate path; dynamic tokens carried in query params where the static router needs them, pretty in shared URLs |
 | Lazy lifecycle transitions on access | No scheduler process to crash or restart; correctness derives from the DB clock check |

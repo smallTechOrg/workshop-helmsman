@@ -22,8 +22,8 @@ def test_create_workshop_returns_full_object(workshop):
 
 
 def test_create_workshop_writes_audit_row(workshop):
-    from src.helmsman.db.models import FacilitatorAction
-    from src.helmsman.db.session import create_db_session
+    from src.workshop0.db.models import FacilitatorAction
+    from src.workshop0.db.session import create_db_session
 
     with create_db_session() as session:
         row = session.scalar(
@@ -78,8 +78,8 @@ def test_list_workshops_empty(client, admin_headers):
 def test_base_url_override_used_for_share_links(monkeypatch, make_app, admin_headers):
     from fastapi.testclient import TestClient
 
-    monkeypatch.setenv("HELMSMAN_BASE_URL", "https://helm.example.com")
-    import src.helmsman.config.settings as settings_module
+    monkeypatch.setenv("WORKSHOP0_BASE_URL", "https://helm.example.com")
+    import src.workshop0.config.settings as settings_module
 
     settings_module._settings = None
     client = TestClient(make_app())

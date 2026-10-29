@@ -15,7 +15,7 @@ def test_join_sets_cookie_with_exact_attributes(make_client, workshop, join_part
     assert joined["name"] == "Priya"
     assert joined["participant_url"] == f"http://testserver/p/{joined['participant_token']}"
 
-    cookie_name = f"helmsman_p_{workshop['id']}"
+    cookie_name = f"workshop0_p_{workshop['id']}"
     assert browser.cookies.get(cookie_name) == joined["participant_token"]
 
 
@@ -23,7 +23,7 @@ def test_join_cookie_header_attributes(make_client, workshop):
     browser = make_client()
     response = browser.post(f"/api/join/{workshop['join_slug']}", json={"name": "Priya"})
     set_cookie = response.headers["set-cookie"].lower()
-    assert f"helmsman_p_{workshop['id']}=" in set_cookie
+    assert f"workshop0_p_{workshop['id']}=" in set_cookie
     assert "httponly" in set_cookie
     assert "samesite=lax" in set_cookie
     assert "path=/" in set_cookie
@@ -47,7 +47,7 @@ def test_join_page_without_cookie_has_no_me(make_client, workshop, join_particip
 
 def test_stale_cookie_for_unknown_participant_is_ignored(make_client, workshop):
     browser = make_client()
-    browser.cookies.set(f"helmsman_p_{workshop['id']}", "not-a-real-token")
+    browser.cookies.set(f"workshop0_p_{workshop['id']}", "not-a-real-token")
     data = browser.get(f"/api/join/{workshop['join_slug']}").json()["data"]
     assert data["me"] is None
 
@@ -67,3 +67,12 @@ def test_duplicate_names_are_allowed(make_client, workshop, join_participant):
     first = join_participant(make_client(), workshop["join_slug"], "Priya")
     second = join_participant(make_client(), workshop["join_slug"], "Priya")
     assert first["participant_token"] != second["participant_token"]
+
+
+def test_legacy_named_cookie_still_auto_resumes(make_client, workshop, join_participant):
+    first = make_client()
+    joined = join_participant(first, workshop["join_slug"], "Priya")
+    old = make_client()
+    old.cookies.set(f"helmsman_p_{workshop['id']}", joined["participant_token"])  # LEGACY-COMPAT
+    data = old.get(f"/api/join/{workshop['join_slug']}").json()["data"]
+    assert data["me"] == {"participant_token": joined["participant_token"], "name": "Priya"}

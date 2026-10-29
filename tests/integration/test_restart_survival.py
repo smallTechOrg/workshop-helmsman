@@ -7,8 +7,8 @@ from tests.conftest import TEST_ADMIN_KEY
 
 
 def _restart(make_app) -> TestClient:
-    import src.helmsman.config.settings as settings_module
-    from src.helmsman.db.session import reset_db_state
+    import src.workshop0.config.settings as settings_module
+    from src.workshop0.db.session import reset_db_state
 
     settings_module._settings = None
     reset_db_state()

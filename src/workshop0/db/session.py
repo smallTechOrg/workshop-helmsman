@@ -36,7 +36,7 @@ def _ensure_sqlite_parent_dir(url: str) -> None:
 def get_engine() -> Engine:
     global _engine
     if _engine is None:
-        from src.helmsman.config.settings import get_settings
+        from src.workshop0.config.settings import get_settings
 
         url = get_settings().database_url
         connect_args: dict = {}
@@ -49,8 +49,8 @@ def get_engine() -> Engine:
             settings = get_settings()
             _engine = create_engine(
                 url,
-                pool_size=settings.helmsman_db_pool_size,
-                max_overflow=settings.helmsman_db_max_overflow,
+                pool_size=settings.workshop0_db_pool_size,
+                max_overflow=settings.workshop0_db_max_overflow,
                 pool_timeout=10,
                 pool_recycle=1800,
                 pool_pre_ping=True,

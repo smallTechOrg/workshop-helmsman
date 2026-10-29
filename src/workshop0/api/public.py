@@ -8,9 +8,9 @@ adds the required `creator_email` and `created_via="public"`.
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from src.helmsman.api._common import request_base_url
-from src.helmsman.db.session import get_session
-from src.helmsman.services.workshops import (
+from src.workshop0.api._common import request_base_url
+from src.workshop0.db.session import get_session
+from src.workshop0.services.workshops import (
     PublicWorkshopCreate,
     create_workshop as create_workshop_record,
 )

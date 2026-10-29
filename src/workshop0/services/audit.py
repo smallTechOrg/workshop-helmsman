@@ -4,7 +4,7 @@ import json
 
 from sqlalchemy.orm import Session
 
-from src.helmsman.db.models import FacilitatorAction
+from src.workshop0.db.models import FacilitatorAction
 
 
 def record_action(

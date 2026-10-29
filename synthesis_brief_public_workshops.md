@@ -2,13 +2,13 @@
 
 ## What we're adding
 
-Workshop Helmsman is currently a private, single-tenant tool: the root URL is an admin
-key gate, and only someone holding `HELMSMAN_ADMIN_KEY` can create a workshop. We are
+Workshop0 is currently a private, single-tenant tool: the root URL is an admin
+key gate, and only someone holding `WORKSHOP0_ADMIN_KEY` can create a workshop. We are
 opening it to the public. Two things change, and nothing else.
 
 **1. A public marketing landing page at `/`.** Today `/` 307-redirects into the admin
 console. It becomes a real, elaborate marketing page explaining what a facilitator gets
-from Workshop Helmsman: live progress dashboard across 300+ participants, content-rich
+from Workshop0: live progress dashboard across 300+ participants, content-rich
 markdown/code milestones, frictionless name-only joining with cookie auto-resume and
 personal cross-device links, a real-time help desk, broadcast/pause/advance room controls,
 proactive stuck-and-bottleneck alerts, audit trail, CSV export. Hero with a single primary
@@ -40,7 +40,7 @@ exactly as it is today:
   landing page offers "your workshops" quick links. This is a convenience, not auth —
   clearing the browser loses the link, and the landing page + FAQ must say so plainly and
   prompt them to save/copy the dashboard link at creation time.
-- **The admin** (holder of `HELMSMAN_ADMIN_KEY`) alone sees the full picture: every
+- **The admin** (holder of `WORKSHOP0_ADMIN_KEY`) alone sees the full picture: every
   workshop, public-created ones included, in one list. The admin console moves off `/`.
 
 ## Routing
